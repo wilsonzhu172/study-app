@@ -1,0 +1,116 @@
+#:kivy 2.3.0
+
+# === 根布局: 顶部导航 + 内容区 + 底部导航 ===
+<RootWidget>:
+    orientation: 'vertical'
+
+    # --- 顶部导航栏 ---
+    BoxLayout:
+        id: top_bar
+        size_hint_y: None
+        height: 70
+        padding: [30, 10]
+        spacing: 20
+        canvas.before:
+            # 导航栏背景
+            Color:
+                rgba: app.color_bg_nav
+            Rectangle:
+                pos: self.pos
+                size: self.size
+            # 底部分隔线
+            Color:
+                rgba: app.color_border
+            Rectangle:
+                pos: self.x, self.y
+                size: self.width, 1
+
+        # 应用标题
+        Label:
+            text: '学习助手'
+            font_size: 36
+            bold: True
+            color: app.color_text
+            size_hint_x: 0.82
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+
+        # 暗黑模式切换按钮
+        Button:
+            id: theme_toggle
+            text: app.theme_label
+            font_size: 22
+            size_hint_x: 0.18
+            size_hint_y: None
+            height: 44
+            pos_hint: {'center_y': 0.5}
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_accent_light
+            color: app.color_accent
+            on_press: app.toggle_theme()
+
+    # --- 主内容区域 (ScreenManager) ---
+    ScreenManager:
+        id: sm
+        size_hint_y: 1
+        canvas.before:
+            Color:
+                rgba: app.color_bg
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+    # --- 底部导航栏 ---
+    BoxLayout:
+        id: bottom_nav
+        size_hint_y: None
+        height: 70
+        spacing: 0
+        canvas.before:
+            # 导航栏背景
+            Color:
+                rgba: app.color_bg_nav
+            Rectangle:
+                pos: self.pos
+                size: self.size
+            # 顶部分隔线
+            Color:
+                rgba: app.color_border
+            Rectangle:
+                pos: self.x, self.top - 1
+                size: self.width, 1
+
+        # 卡片学习标签
+        Button:
+            id: nav_flashcards
+            text: '卡片学习'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_bg_nav
+            color: app.color_accent if root.active_tab == 'flashcards' else app.color_text_sec
+            on_press: root.show_flashcards()
+
+        # 英文词典标签
+        Button:
+            id: nav_dictionary
+            text: '英文词典'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_bg_nav
+            color: app.color_accent if root.active_tab == 'dictionary' else app.color_text_sec
+            on_press: root.show_dictionary()
+
+        # 生词本标签
+        Button:
+            id: nav_vocab
+            text: '生词本'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_bg_nav
+            color: app.color_accent if root.active_tab == 'vocab' else app.color_text_sec
+            on_press: root.show_vocab()

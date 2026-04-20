@@ -1,0 +1,341 @@
+#:kivy 2.3.0
+
+# === 牌组卡片 - 圆角16px + 柔和阴影 ===
+<DeckTile>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: 200
+    padding: [16, 12]
+    spacing: 5
+    canvas.before:
+        # 柔和阴影
+        Color:
+            rgba: app.color_shadow
+        RoundedRectangle:
+            pos: self.x + 3, self.y - 3
+            size: self.width + 2, self.height + 2
+            radius: [18]
+        # 卡片背景 (圆角16px)
+        Color:
+            rgba: app.color_bg_card
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [16]
+    # 顶部彩色标识条
+    BoxLayout:
+        id: color_bar
+        size_hint_y: None
+        height: 6
+        canvas.before:
+            Color:
+                rgba: self.background_color if hasattr(self, 'background_color') else app.color_accent
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [3]
+    # 牌组名称
+    Label:
+        id: deck_name
+        font_size: 32
+        size_hint_y: 0.3
+        color: app.color_text
+        bold: True
+    # 牌组描述
+    Label:
+        id: deck_desc
+        font_size: 22
+        size_hint_y: 0.2
+        color: app.color_text_sec
+    # 学习进度
+    Label:
+        id: deck_progress
+        font_size: 22
+        size_hint_y: 0.15
+        color: app.color_accent
+    # 每日新卡设置 + 打卡状态
+    BoxLayout:
+        size_hint_y: None
+        height: 30
+        Button:
+            id: deck_limit
+            text: '每日新卡: 20'
+            font_size: 18
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_bg_card
+            color: app.color_text_sec
+        Label:
+            id: deck_checkin
+            text: ''
+            font_size: 18
+            color: app.color_success
+            bold: True
+    # 操作按钮
+    BoxLayout:
+        size_hint_y: 0.3
+        spacing: 10
+        Button:
+            id: btn_study
+            text: '学习'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_accent
+            color: (1, 1, 1, 1)
+        Button:
+            id: btn_edit
+            text: '编辑'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_warning
+            color: (1, 1, 1, 1)
+        Button:
+            id: btn_delete
+            text: '删除'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_danger
+            color: (1, 1, 1, 1)
+
+
+# === 牌组列表页 ===
+<DeckListScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [30, 20]
+        spacing: 20
+
+        # 标题栏 + 新建按钮
+        BoxLayout:
+            size_hint_y: None
+            height: 60
+            spacing: 20
+            Label:
+                text: '我的牌组'
+                font_size: 40
+                color: app.color_text
+                bold: True
+                size_hint_x: 0.7
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+            Button:
+                text: '+ 新建牌组'
+                font_size: 26
+                size_hint_x: 0.2
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.show_add_deck()
+            Button:
+                text: '导入牌组'
+                font_size: 26
+                size_hint_x: 0.15
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_success
+                color: (1, 1, 1, 1)
+                on_press: root.show_import_deck()
+
+        # 牌组网格 (3列)
+        ScrollView:
+            GridLayout:
+                id: deck_grid
+                cols: 3
+                spacing: 20
+                size_hint_y: None
+                height: self.minimum_height
+                padding: [10, 10]
+
+
+# === 卡片编辑页 ===
+<CardEditorScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [30, 20]
+        spacing: 15
+
+        # 顶部操作栏
+        BoxLayout:
+            size_hint_y: None
+            height: 60
+            spacing: 20
+            Button:
+                text: '< 返回'
+                font_size: 26
+                size_hint_x: 0.15
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.go_back()
+            Label:
+                id: editor_title
+                text: '编辑牌组'
+                font_size: 36
+                color: app.color_text
+                bold: True
+                size_hint_x: 0.55
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+            Button:
+                text: '+ 添加卡片'
+                font_size: 26
+                size_hint_x: 0.3
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.show_add_card()
+
+        # 卡片列表
+        ScrollView:
+            GridLayout:
+                id: card_list
+                cols: 1
+                spacing: 12
+                size_hint_y: None
+                height: self.minimum_height
+                padding: [10, 10]
+
+
+# === 学习页 - 大卡片居中 + 评分按钮 ===
+<StudyScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [30, 20]
+        spacing: 20
+
+        # 顶部栏: 返回 + 标题 + 进度
+        BoxLayout:
+            size_hint_y: None
+            height: 60
+            spacing: 20
+            Button:
+                text: '< 返回'
+                font_size: 26
+                size_hint_x: 0.15
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.go_back()
+            Label:
+                id: study_title
+                text: '学习'
+                font_size: 36
+                color: app.color_text
+                bold: True
+                size_hint_x: 0.55
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+            Label:
+                id: progress_label
+                text: '0/0'
+                font_size: 28
+                color: app.color_text_sec
+                size_hint_x: 0.3
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
+        # 间距
+        Widget:
+            size_hint_y: 0.1
+
+        # 学习卡片 (圆角16 + 阴影)
+        BoxLayout:
+            id: card_box
+            size_hint_x: 0.7
+            size_hint_y: 0.5
+            pos_hint: {'center_x': 0.5}
+            padding: 40
+            canvas.before:
+                # 柔和阴影
+                Color:
+                    rgba: app.color_shadow
+                RoundedRectangle:
+                    pos: self.x + 3, self.y - 3
+                    size: self.width + 3, self.height + 3
+                    radius: [20]
+                # 卡片背景 (圆角16px)
+                Color:
+                    rgba: app.color_bg_card
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [16]
+            Label:
+                id: card_content
+                text: ''
+                font_size: 42
+                color: app.color_text
+                bold: True
+                halign: 'center'
+                valign: 'middle'
+                text_size: self.size
+
+        # 提示文字
+        Label:
+            id: card_hint
+            text: '点击卡片查看答案'
+            font_size: 24
+            color: app.color_text_sec
+            size_hint_y: 0.1
+
+        # 评分按钮栏
+        BoxLayout:
+            size_hint_y: None
+            height: 80
+            spacing: 20
+            padding: [100, 0]
+            Button:
+                id: btn_again
+                text: '重来'
+                font_size: 28
+                disabled: True
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_danger
+                color: (1, 1, 1, 1)
+                on_press: root.grade_card(0)
+            Button:
+                id: btn_hard
+                text: '困难'
+                font_size: 28
+                disabled: True
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_warning
+                color: (1, 1, 1, 1)
+                on_press: root.grade_card(1)
+            Button:
+                id: btn_good
+                text: '良好'
+                font_size: 28
+                disabled: True
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_success
+                color: (1, 1, 1, 1)
+                on_press: root.grade_card(2)
+            Button:
+                id: btn_easy
+                text: '简单'
+                font_size: 28
+                disabled: True
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.grade_card(3)
+
+        # 底部间距
+        Widget:
+            size_hint_y: 0.1
