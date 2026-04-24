@@ -5,8 +5,9 @@ def get_data_dir() -> str:
     try:
         from android.storage import app_storage_path
         return app_storage_path()
-    except ImportError:
-        return os.path.join(os.path.dirname(__file__), '..', '..', 'data')
+    except (ImportError, Exception):
+        base = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base, '..', '..', 'data')
 
 
 def get_db_path() -> str:

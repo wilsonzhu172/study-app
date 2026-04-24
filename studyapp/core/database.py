@@ -87,6 +87,14 @@ def init_db():
             front           TEXT NOT NULL,
             back            TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS picture_book_records (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL UNIQUE,
+            book_count  INTEGER DEFAULT 0,
+            accuracy    REAL DEFAULT 0,
+            created_at  TEXT DEFAULT (datetime('now','localtime'))
+        );
     """)
 
     # Create default "vocabulary book" deck if not exists
@@ -96,6 +104,22 @@ def init_db():
             "INSERT INTO decks (name, description, color, is_system) VALUES (?, ?, ?, 1)",
             ('生词本', '查词自动收集的单词', '#FF9800'),
         )
+    conn.commit()
+
+    # Create "daily vocabulary" deck if not exists (is_system = 2)
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+    cur = conn.execute("SELECT id, last_checkin FROM decks WHERE is_system = 2")
+    daily_row = cur.fetchone()
+    if daily_row is None:
+        conn.execute(
+            "INSERT INTO decks (name, description, color, is_system, last_checkin) VALUES (?, ?, ?, 2, ?)",
+            ('当日生词本', '今日查词集中复习', '#E91E63', today),
+        )
+    elif daily_row['last_checkin'] != today:
+        # 新的一天: 清空当日生词本所有卡片
+        conn.execute("DELETE FROM cards WHERE deck_id = ?", (daily_row['id'],))
+        conn.execute("UPDATE decks SET last_checkin = ? WHERE id = ?", (today, daily_row['id']))
     conn.commit()
 
     # Add preset_id column to decks if not exists

@@ -25,6 +25,21 @@ def get_vocab_deck_id() -> int | None:
     return r['id'] if r else None
 
 
+def get_daily_deck_id() -> int | None:
+    r = get_connection().execute(
+        "SELECT id FROM decks WHERE is_system = 2"
+    ).fetchone()
+    return r['id'] if r else None
+
+
+def add_to_daily_deck(deck_id: int, word: str, back: str):
+    """在当日生词本中添加卡片（按 source_ref 去重）"""
+    existing = get_card_by_source_ref(deck_id, word)
+    if existing:
+        return
+    create_card(deck_id, word, back, source='dictionary', source_ref=word)
+
+
 def create_deck(name: str, description: str = "", color: str = "#4CAF50", daily_new_limit: int = 20) -> int:
     cur = get_connection().execute(
         "INSERT INTO decks (name, description, color, daily_new_limit) VALUES (?, ?, ?, ?)",
@@ -74,13 +89,15 @@ def checkin_deck(deck_id: int):
 
 
 def is_deck_checked_in(deck_id: int) -> bool:
-    """检查牌组今日是否已打卡"""
+    """检查牌组今日是否已打卡（当日生词本不参与打卡）"""
     from datetime import datetime
     today = datetime.now().strftime('%Y-%m-%d')
     r = get_connection().execute(
-        "SELECT last_checkin FROM decks WHERE id = ?", (deck_id,)
+        "SELECT last_checkin, is_system FROM decks WHERE id = ?", (deck_id,)
     ).fetchone()
-    return r is not None and r['last_checkin'] == today
+    if r is None or r['is_system'] == 2:
+        return False
+    return r['last_checkin'] == today
 
 
 # --- Cards ---

@@ -114,3 +114,14 @@
             background_color: app.color_bg_nav
             color: app.color_accent if root.active_tab == 'vocab' else app.color_text_sec
             on_press: root.show_vocab()
+
+        # 绘本打卡标签
+        Button:
+            id: nav_picturebook
+            text: '绘本打卡'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_bg_nav
+            color: app.color_accent if root.active_tab == 'picturebook' else app.color_text_sec
+            on_press: root.show_picturebook()

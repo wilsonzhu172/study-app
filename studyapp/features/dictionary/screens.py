@@ -79,16 +79,15 @@ class DictionaryScreen(Screen):
         self._save_to_vocab(entry)
 
     def _save_to_vocab(self, entry: WordEntry):
-        """保存到生词本并自动创建卡片"""
+        """保存到生词本并自动创建卡片，同时同步到当日生词本"""
         deck_id = get_vocab_deck_id()
         card_id = None
-        if deck_id:
-            back_parts = [entry.translation or entry.definition]
-            if entry.example:
-                back_parts.append(f'例: {entry.example}')
-            back = '\n'.join(back_parts)
+        back_parts = [entry.translation or entry.definition]
+        if entry.example:
+            back_parts.append(f'例: {entry.example}')
+        back = '\n'.join(back_parts)
 
-            # 检查是否已有对应卡片，避免重复创建
+        if deck_id:
             from ..flashcards.repository import get_card_by_source_ref, update_card
             existing = get_card_by_source_ref(deck_id, entry.word)
             if existing:
@@ -97,6 +96,13 @@ class DictionaryScreen(Screen):
             else:
                 card_id = create_card(deck_id, entry.word, back, source='dictionary', source_ref=entry.word)
         save_or_update_vocab(entry, card_id)
+
+        # 同步到当日生词本
+        from ..flashcards.repository import get_daily_deck_id, add_to_daily_deck
+        daily_id = get_daily_deck_id()
+        if daily_id:
+            add_to_daily_deck(daily_id, entry.word, back)
+
         self.ids.status_label.text = '已加入生词本'
 
     def _add_history(self, word):

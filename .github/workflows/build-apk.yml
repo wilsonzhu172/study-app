@@ -1,0 +1,45 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openjdk-17-jdk
+          pip install buildozer cython==0.29.37
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+      - name: Build with Buildozer
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          buildozer android debug 2>&1 | tee build.log
+
+      - name: Patch and retry on mipmap error
+        if: failure()
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          dist=$(find .buildozer/android/platform/build-*/dists/studyapp -maxdepth 0 -type d | head -1)
+          if [ -n "$dist" ] && [ -f "$dist/build.py" ]; then
+            cd "$dist"
+            sed -i "/shutil.copy(/i\\    ensure_dir(join(res_dir, \"mipmap\"))\n    ensure_dir(join(res_dir, \"drawable\"))" build.py
+            sed -i 's/\r$//' gradlew
+            chmod +x gradlew
+            cd -
+            buildozer android debug 2>&1 | tee -a build.log
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: studyapp-apk
+          path: bin/*-debug.apk

@@ -10,7 +10,8 @@ if os.path.exists(_font_path):
     _font_path = os.path.abspath(_font_path)
     from kivy.config import Config
     Config.set('kivy', 'default_font', [_font_path, _font_path, _font_path, _font_path])
-    Config.set('kivy', 'keyboard_mode', 'systemandmulti')
+    if not os.environ.get('ANDROID_ROOT'):
+        Config.set('kivy', 'keyboard_mode', 'systemandmulti')
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -23,9 +24,11 @@ from studyapp.core.database import init_db
 from studyapp.core.theme import LIGHT, DARK
 from studyapp.features.flashcards.screens import register_screens as register_flashcards
 from studyapp.features.dictionary.screens import register_screens as register_dictionary
+from studyapp.features.picturebook.screens import register_screens as register_picturebook
 
-# 窗口大小 (适配21.5寸学习机横屏)
-Window.size = (1920, 1080)
+# 窗口大小 (适配21.5寸学习机横屏, Android上使用全屏)
+if not os.environ.get('ANDROID_ROOT'):
+    Window.size = (1920, 1080)
 
 # 加载根KV布局
 kv_path = os.path.join(os.path.dirname(__file__), 'studyapp.kv')
@@ -99,6 +102,11 @@ class RootWidget(BoxLayout):
         self.ids.sm.current = 'vocab_list'
         self.active_tab = 'vocab'
 
+    def show_picturebook(self):
+        """切换到绘本打卡页"""
+        self.ids.sm.current = 'picturebook'
+        self.active_tab = 'picturebook'
+
 
 class StudyApp(App):
     """学习助手主应用 - 支持亮色/暗黑主题切换"""
@@ -129,6 +137,7 @@ class StudyApp(App):
         root = RootWidget()
         register_flashcards(root.ids.sm)
         register_dictionary(root.ids.sm)
+        register_picturebook(root.ids.sm)
         root.ids.sm.current = 'deck_list'
         return root
 

@@ -32,6 +32,17 @@ def _dismiss_and_unfocus(popup):
     popup.dismiss()
 
 
+def _bind_exclusive_focus(inputs):
+    """让一组TextInput互斥聚焦：只有一个获得焦点时，其余全部失去焦点"""
+    def _on_focus(instance, value):
+        if value:
+            for inp in inputs:
+                if inp is not instance and inp.focus:
+                    inp.focus = False
+    for inp in inputs:
+        inp.bind(focus=_on_focus)
+
+
 class DeckTile(BoxLayout):
     """牌组卡片组件 - 在KV中定义样式"""
     pass
@@ -55,7 +66,7 @@ class DeckListScreen(Screen):
             tile.ids.deck_name.text = deck.name
             tile.ids.deck_desc.text = deck.description or f'{total}张卡片'
             tile.ids.deck_progress.text = f'掌握 {pct}% ({learned}/{total})'
-            tile.ids.deck_limit.text = f'每日新卡: {deck.daily_new_limit}'
+            tile.ids.deck_limit.text = '' if deck.is_system == 2 else f'每日新卡: {deck.daily_new_limit}'
             tile.ids.deck_checkin.text = '已打卡' if is_deck_checked_in(deck.id) else ''
             tile.ids.color_bar.background_color = self._hex_to_rgba(deck.color)
             tile.deck_id = deck.id
@@ -101,6 +112,7 @@ class DeckListScreen(Screen):
         content.add_widget(desc_input)
         content.add_widget(color_input)
         content.add_widget(limit_input)
+        _bind_exclusive_focus([name_input, desc_input, color_input, limit_input])
         content.add_widget(btns)
 
         popup = Popup(title='新建牌组', content=content, size_hint=(0.5, 0.5),
@@ -374,6 +386,7 @@ class CardEditorScreen(Screen):
         btns.add_widget(cancel)
         content.add_widget(front_input)
         content.add_widget(back_input)
+        _bind_exclusive_focus([front_input, back_input])
         content.add_widget(btns)
 
         popup = Popup(title='添加卡片', content=content, size_hint=(0.5, 0.4),
@@ -411,6 +424,7 @@ class CardEditorScreen(Screen):
         btns.add_widget(cancel)
         content.add_widget(front_input)
         content.add_widget(back_input)
+        _bind_exclusive_focus([front_input, back_input])
         content.add_widget(btns)
 
         popup = Popup(title='编辑卡片', content=content, size_hint=(0.5, 0.4),

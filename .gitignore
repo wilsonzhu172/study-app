@@ -20,3 +20,24 @@ wheels/
 files/
 *.doc
 *.docx
+
+# Build artifacts
+*.tgz
+*.tar.gz
+gradle-*-all.zip
+kivy-*.zip
+SDL2-*.tar.gz
+bin/
+
+# VM helper scripts (not needed for build)
+scp_*.py
+ssh_cmd.py
+gh_proxy.py
+patch_build.py
+gen_gradle.py
+gen_manifest.py
+build_apk_colab.py
+build_colab.ipynb
+
+# Claude
+.claude/

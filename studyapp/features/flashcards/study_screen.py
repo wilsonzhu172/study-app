@@ -9,7 +9,7 @@ from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.graphics import Color as ColorInstr
 
-from .repository import get_cards_by_deck, get_deck, add_study_record, get_vocab_deck_id, checkin_deck
+from .repository import get_cards_by_deck, get_deck, add_study_record, get_vocab_deck_id, checkin_deck, get_due_cards, get_new_cards
 from .study_engine import get_study_cards, grade_label, process_grade
 
 kv_path = os.path.join(os.path.dirname(__file__), 'flashcards.kv')
@@ -24,13 +24,18 @@ class StudyScreen(Screen):
         self._index = 0
         self._total = 0
         self._flipped = False
+        self._is_daily = False
 
     def start_study(self, deck_id):
         """开始学习指定牌组"""
         self._deck_id = deck_id
         deck = get_deck(deck_id)
         self.ids.study_title.text = deck.name
-        self._cards = get_study_cards(deck_id, deck.daily_new_limit)
+        self._is_daily = deck.is_system == 2
+        if self._is_daily:
+            self._cards = get_new_cards(deck_id) + get_due_cards(deck_id)
+        else:
+            self._cards = get_study_cards(deck_id, deck.daily_new_limit)
         self._index = 0
         self._total = len(self._cards)
         self._show_card()
@@ -40,6 +45,25 @@ class StudyScreen(Screen):
         """显示当前卡片正面"""
         app = App.get_running_app()
         if self._index >= len(self._cards):
+            # 当日生词本: 未掌握的卡片循环
+            if self._is_daily:
+                remaining = get_due_cards(self._deck_id)
+                if remaining:
+                    self._cards = remaining
+                    self._index = 0
+                    card = self._cards[self._index]
+                    self._flipped = False
+                    self.ids.card_content.text = card.front
+                    self.ids.card_hint.text = '点击卡片查看答案 (未掌握，继续循环)'
+                    mastered = self._total - len(remaining)
+                    self.ids.progress_label.text = f'已掌握 {mastered}/{self._total}'
+                    for btn_id in ('btn_again', 'btn_hard', 'btn_good', 'btn_easy'):
+                        self.ids[btn_id].disabled = True
+                    card_colors = [c for c in self.ids.card_box.canvas.before.children if isinstance(c, ColorInstr)]
+                    if card_colors:
+                        card_colors[-1].rgba = app.color_bg_card
+                    return
+
             self.ids.card_content.text = '全部学完！'
             self.ids.card_hint.text = ''
             self.ids.progress_label.text = f'已学 {self._total}/{self._total}'
@@ -92,15 +116,27 @@ class StudyScreen(Screen):
         card = self._cards[self._index]
         add_study_record(card.id, grade)
 
-        # 更新卡片进度 (间隔重复)
-        progress = process_grade(card.id, grade)
+        # 当日生词本: grade>=2 掌握(level=5), grade<2 继续循环(level=0)
+        if self._is_daily:
+            from datetime import datetime, timedelta
+            if grade >= 2:
+                new_level = 5
+                next_review = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                new_level = 0
+                next_review = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            from .repository import upsert_card_progress
+            upsert_card_progress(card.id, new_level, next_review)
+        else:
+            # 普通牌组: 标准间隔重复
+            progress = process_grade(card.id, grade)
 
-        # 生词本自动清理: 已掌握的词从vocabulary表删除
-        if progress and progress['level'] >= 5:
-            vocab_deck_id = get_vocab_deck_id()
-            if vocab_deck_id and card.deck_id == vocab_deck_id:
-                from ..dictionary.repository import delete_vocab_by_card_id
-                delete_vocab_by_card_id(card.id)
+            # 生词本自动清理: 已掌握的词从vocabulary表删除
+            if progress and progress['level'] >= 5:
+                vocab_deck_id = get_vocab_deck_id()
+                if vocab_deck_id and card.deck_id == vocab_deck_id:
+                    from ..dictionary.repository import delete_vocab_by_card_id
+                    delete_vocab_by_card_id(card.id)
 
         # 评分颜色反馈 (半透明覆盖在卡片上)
         colors = {
