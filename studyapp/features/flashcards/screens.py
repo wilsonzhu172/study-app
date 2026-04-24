@@ -1,332 +1,398 @@
-import os
-from kivy.app import App
-from kivy.lang import Builder
-from kivy.uix.screenmanager import Screen
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.label import Label
-from kivy.uix.button import Button
-from kivy.uix.textinput import TextInput
-from kivy.uix.popup import Popup
-from kivy.uix.checkbox import CheckBox
-from kivy.uix.scrollview import ScrollView
+import tkinter as tk
 
 from .repository import (
-    get_decks, get_deck, create_deck, update_deck, delete_deck,
+    get_decks, get_deck, create_deck, delete_deck,
     get_cards_by_deck, get_card, create_card, update_card, delete_card,
     get_card_count, get_learned_count, get_preset_decks, import_preset_deck,
     update_deck_daily_limit, is_deck_checked_in,
 )
-from .study_screen import StudyScreen
-
-# 加载卡片学习模块的KV样式
-kv_path = os.path.join(os.path.dirname(__file__), 'flashcards.kv')
-Builder.load_file(kv_path)
+from .study_engine import get_study_cards, process_grade
+from .repository import add_study_record, get_vocab_deck_id, checkin_deck, get_due_cards, get_new_cards
 
 
-def _dismiss_and_unfocus(popup):
-    """关闭弹窗前取消所有TextInput焦点，确保虚拟键盘收起"""
-    for child in popup.content.walk():
-        if isinstance(child, TextInput) and child.focus:
-            child.focus = False
-    popup.dismiss()
+def _deck_columns(app):
+    """根据屏幕宽度决定牌组网格列数"""
+    w = app.win_size[0]
+    if w < 500:
+        return 1
+    elif w < 900:
+        return 2
+    else:
+        return 3
 
 
-def _bind_exclusive_focus(inputs):
-    """让一组TextInput互斥聚焦：只有一个获得焦点时，其余全部失去焦点"""
-    def _on_focus(instance, value):
-        if value:
-            for inp in inputs:
-                if inp is not instance and inp.focus:
-                    inp.focus = False
-    for inp in inputs:
-        inp.bind(focus=_on_focus)
+def _bind_touch_scroll(canvas):
+    """为 Canvas 绑定触屏拖动滚动 (平板/手机适用)"""
+    state = {'y': 0}
+
+    def _press(e):
+        state['y'] = e.y
+
+    def _drag(e):
+        dy = e.y - state['y']
+        if abs(dy) > 3:
+            canvas.yview_scroll(int(-dy / 3), 'units')
+            state['y'] = e.y
+
+    canvas.bind('<ButtonPress-1>', _press, add='+')
+    canvas.bind('<B1-Motion>', _drag, add='+')
 
 
-class DeckTile(BoxLayout):
-    """牌组卡片组件 - 在KV中定义样式"""
-    pass
+class DeckListFrame(tk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self._build_ui()
 
+    def _build_ui(self):
+        t = self.app.theme
 
-class DeckListScreen(Screen):
-    """牌组列表页 - 显示所有牌组"""
+        header = tk.Frame(self, bg=t['bg'])
+        header.pack(fill='x', padx=self.app.sx(20), pady=(self.app.sy(15), self.app.sy(10)))
+
+        tk.Label(header, text='我的牌组', font=('Microsoft YaHei', self.app.s(22), 'bold'),
+                 bg=t['bg'], fg=t['text']).pack(side='left')
+
+        tk.Button(header, text='+ 新建牌组', font=('Microsoft YaHei', self.app.s(12)),
+                  bg=t['accent'], fg='white', relief='flat',
+                  command=self._show_add_deck).pack(side='right', padx=(self.app.sx(10), 0))
+        tk.Button(header, text='导入牌组', font=('Microsoft YaHei', self.app.s(12)),
+                  bg=t['success'], fg='white', relief='flat',
+                  command=self._show_import_deck).pack(side='right')
+
+        # 可滚动区域
+        self._scroll_canvas = tk.Canvas(self, highlightthickness=0, bg=t['bg'])
+        self._scroll_canvas.pack(fill='both', expand=True, padx=self.app.sx(20), pady=(0, self.app.sy(10)))
+
+        self._deck_container = tk.Frame(self._scroll_canvas, bg=t['bg'])
+        self._window_id = self._scroll_canvas.create_window((0, 0), window=self._deck_container, anchor='nw')
+
+        self._deck_container.bind('<Configure>',
+            lambda e: self._scroll_canvas.configure(scrollregion=self._scroll_canvas.bbox('all')))
+        self._scroll_canvas.bind('<Configure>', self._on_canvas_resize)
+        self._scroll_canvas.bind('<Enter>',
+            lambda e: self._scroll_canvas.bind_all('<MouseWheel>',
+                lambda ev: self._scroll_canvas.yview_scroll(-1 * (ev.delta // 120), 'units')))
+        self._scroll_canvas.bind('<Leave>', lambda e: self._scroll_canvas.unbind_all('<MouseWheel>'))
+        _bind_touch_scroll(self._scroll_canvas)
+
+    def _on_canvas_resize(self, event):
+        self._scroll_canvas.itemconfig(self._window_id, width=event.width)
 
     def on_enter(self):
         self.refresh()
 
     def refresh(self):
-        """刷新牌组列表"""
-        container = self.ids.deck_grid
-        container.clear_widgets()
-        for deck in get_decks():
-            total = get_card_count(deck.id)
-            learned = get_learned_count(deck.id)
-            pct = int(learned / total * 100) if total else 0
-            tile = DeckTile()
-            tile.ids.deck_name.text = deck.name
-            tile.ids.deck_desc.text = deck.description or f'{total}张卡片'
-            tile.ids.deck_progress.text = f'掌握 {pct}% ({learned}/{total})'
-            tile.ids.deck_limit.text = '' if deck.is_system == 2 else f'每日新卡: {deck.daily_new_limit}'
-            tile.ids.deck_checkin.text = '已打卡' if is_deck_checked_in(deck.id) else ''
-            tile.ids.color_bar.background_color = self._hex_to_rgba(deck.color)
-            tile.deck_id = deck.id
-            tile.is_system = deck.is_system
-            tile.daily_new_limit = deck.daily_new_limit
+        for w in self._deck_container.winfo_children():
+            w.destroy()
 
-            tile.ids.btn_study.bind(on_release=lambda b, d=deck.id: self.study_deck(d))
-            tile.ids.btn_edit.bind(on_release=lambda b, d=deck.id: self.edit_cards(d))
-            tile.ids.btn_delete.bind(on_release=lambda b, d=deck.id, sys=deck.is_system:
-                                      self.confirm_delete(d) if not sys else self.batch_delete_cards(d))
-            tile.ids.deck_limit.bind(on_release=lambda b, d=deck.id: self.show_deck_settings(d))
+        t = self.app.theme
+        cols = _deck_columns(self.app)
+        decks = get_decks()
 
-            container.add_widget(tile)
+        for i, deck in enumerate(decks):
+            row, col = divmod(i, cols)
+            self._create_deck_tile(deck, row, col, cols)
 
-    @staticmethod
-    def _hex_to_rgba(hex_color):
-        """将十六进制颜色转为RGBA元组"""
-        h = hex_color.lstrip('#')
-        return tuple(int(h[i:i+2], 16) / 255 for i in (0, 2, 4)) + (1,)
+    def _create_deck_tile(self, deck, row, col, cols):
+        t = self.app.theme
+        a = self.app
+        total = get_card_count(deck.id)
+        learned = get_learned_count(deck.id)
+        pct = int(learned / total * 100) if total else 0
 
-    def show_add_deck(self):
-        """弹出新建牌组对话框"""
-        app = App.get_running_app()
-        content = BoxLayout(orientation='vertical', spacing=15, padding=20)
-        name_input = TextInput(hint_text='牌组名称', font_size=28, size_hint_y=None, height=60,
-                               foreground_color=app.color_text)
-        desc_input = TextInput(hint_text='描述(可选)', font_size=28, size_hint_y=None, height=60,
-                               foreground_color=app.color_text)
-        color_input = TextInput(hint_text='颜色(如 #2196F3)', font_size=28, size_hint_y=None, height=60,
-                                foreground_color=app.color_text)
-        limit_input = TextInput(hint_text='每日新卡数量(默认20)', font_size=28, size_hint_y=None, height=60,
-                                foreground_color=app.color_text, input_filter='int')
+        tile = tk.Frame(self._deck_container, bg=t['bg_card'], highlightbackground=t['border'],
+                        highlightthickness=1, padx=a.sx(15), pady=a.sy(10))
+        tile.grid(row=row, column=col, padx=a.sx(10), pady=a.sy(8), sticky='nsew')
+        for c in range(cols):
+            self._deck_container.grid_columnconfigure(c, weight=1)
 
-        btns = BoxLayout(size_hint_y=None, height=60, spacing=20)
-        confirm = Button(text='确定', font_size=28, background_normal='', background_down='',
-                         background_color=app.color_accent, color=(1, 1, 1, 1))
-        cancel = Button(text='取消', font_size=28, background_normal='', background_down='',
-                        background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        btns.add_widget(confirm)
-        btns.add_widget(cancel)
+        # 色条
+        tk.Frame(tile, bg=deck.color, height=a.sy(4)).pack(fill='x', pady=(0, a.sy(5)))
 
-        content.add_widget(name_input)
-        content.add_widget(desc_input)
-        content.add_widget(color_input)
-        content.add_widget(limit_input)
-        _bind_exclusive_focus([name_input, desc_input, color_input, limit_input])
-        content.add_widget(btns)
+        # 名称
+        tk.Label(tile, text=deck.name, font=('Microsoft YaHei', a.s(16), 'bold'),
+                 bg=t['bg_card'], fg=t['text'], anchor='w').pack(fill='x')
 
-        popup = Popup(title='新建牌组', content=content, size_hint=(0.5, 0.5),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        cancel.bind(on_release=lambda b: _dismiss_and_unfocus(popup))
+        # 描述
+        desc = deck.description or f'{total}张卡片'
+        tk.Label(tile, text=desc, font=('Microsoft YaHei', a.s(11)),
+                 bg=t['bg_card'], fg=t['text_sec'], anchor='w').pack(fill='x')
 
-        def do_create(instance):
-            name = name_input.text.strip()
-            if name:
-                limit = int(limit_input.text.strip()) if limit_input.text.strip() else 20
-                create_deck(name, desc_input.text.strip(), color_input.text.strip() or '#4CAF50', limit)
-                _dismiss_and_unfocus(popup)
-                self.refresh()
+        # 进度
+        tk.Label(tile, text=f'掌握 {pct}% ({learned}/{total})', font=('Microsoft YaHei', a.s(11)),
+                 bg=t['bg_card'], fg=t['accent'], anchor='w').pack(fill='x')
 
-        confirm.bind(on_release=do_create)
-        popup.open()
+        # 设置 + 打卡
+        info_frame = tk.Frame(tile, bg=t['bg_card'])
+        info_frame.pack(fill='x', pady=(a.sy(2), 0))
 
-    def show_deck_settings(self, deck_id):
-        """牌组设置弹窗 - 修改每日新卡数量"""
-        app = App.get_running_app()
-        deck = get_deck(deck_id)
-        content = BoxLayout(orientation='vertical', spacing=15, padding=20)
-        content.add_widget(Label(text=f'牌组: {deck.name}', font_size=28, color=app.color_text,
-                                 size_hint_y=None, height=50))
-        limit_input = TextInput(text=str(deck.daily_new_limit), hint_text='每日新卡数量',
-                                font_size=28, size_hint_y=None, height=60,
-                                foreground_color=app.color_text, input_filter='int')
+        limit_text = '' if deck.is_system == 2 else f'每日新卡: {deck.daily_new_limit}'
+        limit_lbl = tk.Label(info_frame, text=limit_text, font=('Microsoft YaHei', a.s(9)),
+                             bg=t['bg_card'], fg=t['text_sec'], anchor='w')
+        limit_lbl.pack(side='left')
+        if limit_text:
+            limit_lbl.bind('<Button-1>', lambda e, d=deck.id: self._show_deck_settings(d))
 
-        btns = BoxLayout(size_hint_y=None, height=60, spacing=20)
-        confirm = Button(text='保存', font_size=28, background_normal='', background_down='',
-                         background_color=app.color_accent, color=(1, 1, 1, 1))
-        cancel = Button(text='取消', font_size=28, background_normal='', background_down='',
-                        background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        btns.add_widget(confirm)
-        btns.add_widget(cancel)
+        if is_deck_checked_in(deck.id):
+            tk.Label(info_frame, text='已打卡', font=('Microsoft YaHei', a.s(9), 'bold'),
+                     bg=t['bg_card'], fg=t['success']).pack(side='right')
 
-        content.add_widget(limit_input)
-        content.add_widget(btns)
+        # 操作按钮
+        btn_frame = tk.Frame(tile, bg=t['bg_card'])
+        btn_frame.pack(fill='x', pady=(a.sy(5), 0))
+        btn_font = ('Microsoft YaHei', a.s(11))
 
-        popup = Popup(title='牌组设置', content=content, size_hint=(0.4, 0.35),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        cancel.bind(on_release=lambda b: _dismiss_and_unfocus(popup))
+        tk.Button(btn_frame, text='学习', font=btn_font, bg=t['accent'], fg='white',
+                  relief='flat', command=lambda d=deck.id: self._study_deck(d)).pack(side='left', padx=(0, a.sx(5)))
+        tk.Button(btn_frame, text='编辑', font=btn_font, bg=t['warning'], fg='white',
+                  relief='flat', command=lambda d=deck.id: self._edit_cards(d)).pack(side='left', padx=(0, a.sx(5)))
 
-        def do_save(instance):
-            val = int(limit_input.text.strip()) if limit_input.text.strip() else 20
-            update_deck_daily_limit(deck_id, max(1, val))
-            _dismiss_and_unfocus(popup)
-            self.refresh()
+        if deck.is_system:
+            tk.Button(btn_frame, text='删卡', font=btn_font, bg=t['danger'], fg='white',
+                      relief='flat', command=lambda d=deck.id: self._batch_delete(d)).pack(side='left')
+        else:
+            tk.Button(btn_frame, text='删除', font=btn_font, bg=t['danger'], fg='white',
+                      relief='flat', command=lambda d=deck.id: self._confirm_delete(d)).pack(side='left')
 
-        confirm.bind(on_release=do_save)
-        popup.open()
+    def _study_deck(self, deck_id):
+        self.app.show_sub_screen('study', deck_id=deck_id)
 
-    def study_deck(self, deck_id):
-        """开始学习指定牌组"""
-        sm = self.manager
-        study_screen = sm.get_screen('study')
-        study_screen.start_study(deck_id)
-        sm.current = 'study'
+    def _edit_cards(self, deck_id):
+        self.app.show_sub_screen('card_editor', deck_id=deck_id)
 
-    def edit_cards(self, deck_id):
-        """进入卡片编辑页"""
-        sm = self.manager
-        editor = sm.get_screen('card_editor')
-        editor.load_deck(deck_id)
-        sm.current = 'card_editor'
+    def _confirm_delete(self, deck_id):
+        t = self.app.theme
+        a = self.app
+        popup = tk.Toplevel(self)
+        popup.title('确认删除')
+        popup.geometry(f'{a.sx(300)}x{a.sy(150)}')
+        popup.configure(bg=t['bg_card'])
+        popup.transient(self)
+        popup.grab_set()
 
-    def confirm_delete(self, deck_id):
-        """确认删除牌组弹窗"""
-        app = App.get_running_app()
-        content = BoxLayout(orientation='vertical', spacing=15, padding=20)
-        content.add_widget(Label(text='确定删除这个牌组？', font_size=28, color=app.color_text))
-        btns = BoxLayout(size_hint_y=None, height=60, spacing=20)
-        yes = Button(text='删除', font_size=28, background_normal='', background_down='',
-                     background_color=app.color_danger, color=(1, 1, 1, 1))
-        no = Button(text='取消', font_size=28, background_normal='', background_down='',
-                    background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        btns.add_widget(yes)
-        btns.add_widget(no)
-        content.add_widget(btns)
+        tk.Label(popup, text='确定删除这个牌组？', font=('Microsoft YaHei', a.s(14)),
+                 bg=t['bg_card'], fg=t['text']).pack(expand=True)
 
-        popup = Popup(title='确认', content=content, size_hint=(0.4, 0.3),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        no.bind(on_release=popup.dismiss)
-        yes.bind(on_release=lambda _: (delete_deck(deck_id), popup.dismiss(), self.refresh()))
-        popup.open()
+        btn_frame = tk.Frame(popup, bg=t['bg_card'])
+        btn_frame.pack(fill='x', padx=a.sx(20), pady=a.sy(10))
+        tk.Button(btn_frame, text='删除', bg=t['danger'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)),
+                  command=lambda: [delete_deck(deck_id), popup.destroy(), self.refresh()]).pack(side='left', expand=True)
+        tk.Button(btn_frame, text='取消', bg=t['text_sec'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)),
+                  command=popup.destroy).pack(side='left', expand=True)
 
-    def batch_delete_cards(self, deck_id):
-        """批量删除卡片弹窗 (用于系统牌组)"""
-        app = App.get_running_app()
+    def _batch_delete(self, deck_id):
         cards = get_cards_by_deck(deck_id)
         if not cards:
             return
-        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
-        scroll = ScrollView(size_hint_y=0.85)
-        grid = GridLayout(cols=1, spacing=8, size_hint_y=None, height=0)
+        t = self.app.theme
+        a = self.app
+        popup = tk.Toplevel(self)
+        popup.title('选择要删除的卡片')
+        popup.geometry(f'{a.sx(500)}x{a.sy(400)}')
+        popup.configure(bg=t['bg_card'])
+        popup.transient(self)
+        popup.grab_set()
+
+        canvas = tk.Canvas(popup, bg=t['bg_card'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(popup, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=t['bg_card'])
+        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side='left', fill='both', expand=True, padx=a.sx(10), pady=a.sy(10))
+        scrollbar.pack(side='right', fill='y')
+
         checkboxes = []
         for card in cards:
-            row = BoxLayout(size_hint_y=None, height=50, spacing=10)
-            cb = CheckBox(active=False, size_hint_x=0.1)
-            checkboxes.append((cb, card.id))
-            lbl = Label(text=card.front if len(card.front) <= 25 else card.front[:25] + '...',
-                        font_size=24, size_hint_x=0.9, color=app.color_text,
-                        halign='left', valign='middle')
-            row.add_widget(cb)
-            row.add_widget(lbl)
-            grid.add_widget(row)
-            grid.height += 58
-        scroll.add_widget(grid)
-        content.add_widget(scroll)
+            var = tk.BooleanVar()
+            text = card.front if len(card.front) <= 25 else card.front[:25] + '...'
+            tk.Checkbutton(inner, text=text, variable=var, bg=t['bg_card'], fg=t['text'],
+                           selectcolor=t['bg_card'], activebackground=t['bg_card'],
+                           font=('Microsoft YaHei', a.s(12))).pack(anchor='w', pady=a.sy(2))
+            checkboxes.append((var, card.id))
 
-        btns = BoxLayout(size_hint_y=None, height=60, spacing=20)
-        del_btn = Button(text='删除选中', font_size=28,
-                         background_normal='', background_down='',
-                         background_color=app.color_danger, color=(1, 1, 1, 1))
-        cancel_btn = Button(text='取消', font_size=28,
-                            background_normal='', background_down='',
-                            background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        btns.add_widget(del_btn)
-        btns.add_widget(cancel_btn)
-        content.add_widget(btns)
+        btn_frame = tk.Frame(popup, bg=t['bg_card'])
+        btn_frame.pack(fill='x', padx=a.sx(20), pady=a.sy(10))
+        tk.Button(btn_frame, text='删除选中', bg=t['danger'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)),
+                  command=lambda: [self._do_batch_delete(checkboxes), popup.destroy()]).pack(side='left', expand=True)
+        tk.Button(btn_frame, text='取消', bg=t['text_sec'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)),
+                  command=popup.destroy).pack(side='left', expand=True)
 
-        popup = Popup(title='选择要删除的卡片', content=content, size_hint=(0.6, 0.6),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        cancel_btn.bind(on_release=popup.dismiss)
+    def _do_batch_delete(self, checkboxes):
+        for var, cid in checkboxes:
+            if var.get():
+                delete_card(cid)
+        self.refresh()
 
-        def do_delete(instance):
-            for cb, cid in checkboxes:
-                if cb.active:
-                    delete_card(cid)
-            popup.dismiss()
+    def _show_add_deck(self):
+        t = self.app.theme
+        a = self.app
+        popup = tk.Toplevel(self)
+        popup.title('新建牌组')
+        popup.geometry(f'{a.sx(400)}x{a.sy(300)}')
+        popup.configure(bg=t['bg_card'])
+        popup.transient(self)
+        popup.grab_set()
+
+        entries = {}
+        for label, default in [('牌组名称', ''), ('描述(可选)', ''), ('颜色(如 #2196F3)', ''), ('每日新卡数量(默认20)', '20')]:
+            tk.Label(popup, text=label, bg=t['bg_card'], fg=t['text'],
+                     font=('Microsoft YaHei', a.s(12))).pack(anchor='w', padx=a.sx(20), pady=(a.sy(10), 0))
+            entry = tk.Entry(popup, font=('Microsoft YaHei', a.s(14)))
+            entry.insert(0, default)
+            entry.pack(fill='x', padx=a.sx(20))
+            entries[label] = entry
+
+        def do_create():
+            name = entries['牌组名称'].get().strip()
+            if name:
+                limit = int(entries['每日新卡数量(默认20)'].get().strip() or '20')
+                create_deck(name, entries['描述(可选)'].get().strip(),
+                           entries['颜色(如 #2196F3)'].get().strip() or '#4CAF50', limit)
+                popup.destroy()
+                self.refresh()
+
+        btn_frame = tk.Frame(popup, bg=t['bg_card'])
+        btn_frame.pack(fill='x', padx=a.sx(20), pady=a.sy(15))
+        tk.Button(btn_frame, text='确定', bg=t['accent'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)), command=do_create).pack(side='left', expand=True)
+        tk.Button(btn_frame, text='取消', bg=t['text_sec'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)), command=popup.destroy).pack(side='left', expand=True)
+
+    def _show_deck_settings(self, deck_id):
+        t = self.app.theme
+        a = self.app
+        deck = get_deck(deck_id)
+        popup = tk.Toplevel(self)
+        popup.title('牌组设置')
+        popup.geometry(f'{a.sx(350)}x{a.sy(180)}')
+        popup.configure(bg=t['bg_card'])
+        popup.transient(self)
+        popup.grab_set()
+
+        tk.Label(popup, text=f'牌组: {deck.name}', bg=t['bg_card'], fg=t['text'],
+                 font=('Microsoft YaHei', a.s(14))).pack(pady=(a.sy(15), a.sy(5)))
+        tk.Label(popup, text='每日新卡数量', bg=t['bg_card'], fg=t['text'],
+                 font=('Microsoft YaHei', a.s(11))).pack()
+        entry = tk.Entry(popup, font=('Microsoft YaHei', a.s(14)))
+        entry.insert(0, str(deck.daily_new_limit))
+        entry.pack(padx=a.sx(20))
+
+        def do_save():
+            val = int(entry.get().strip() or '20')
+            update_deck_daily_limit(deck_id, max(1, val))
+            popup.destroy()
             self.refresh()
 
-        del_btn.bind(on_release=do_delete)
-        popup.open()
+        btn_frame = tk.Frame(popup, bg=t['bg_card'])
+        btn_frame.pack(fill='x', padx=a.sx(20), pady=a.sy(15))
+        tk.Button(btn_frame, text='保存', bg=t['accent'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)), command=do_save).pack(side='left', expand=True)
+        tk.Button(btn_frame, text='取消', bg=t['text_sec'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)), command=popup.destroy).pack(side='left', expand=True)
 
-    def show_import_deck(self):
-        """导入预设牌组弹窗"""
-        app = App.get_running_app()
+    def _show_import_deck(self):
         presets = get_preset_decks()
         if not presets:
             return
+        t = self.app.theme
+        a = self.app
+        popup = tk.Toplevel(self)
+        popup.title('导入预设牌组')
+        popup.geometry(f'{a.sx(600)}x{a.sy(400)}')
+        popup.configure(bg=t['bg_card'])
+        popup.transient(self)
+        popup.grab_set()
 
-        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
-        scroll = ScrollView(size_hint_y=0.9)
-        grid = GridLayout(cols=1, spacing=12, size_hint_y=None, height=0)
+        canvas = tk.Canvas(popup, bg=t['bg_card'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(popup, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=t['bg_card'])
+        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side='left', fill='both', expand=True, padx=a.sx(10), pady=a.sy(10))
+        scrollbar.pack(side='right', fill='y')
 
         for p in presets:
-            row = BoxLayout(size_hint_y=None, height=90, spacing=15, padding=[10, 5])
-
-            # 色块标识 (用Label+背景色代替canvas)
-            color_rgba = self._hex_to_rgba(p['color'])
-            color_lbl = Label(text='██', font_size=28, size_hint_x=None, width=30,
-                              color=color_rgba)
-
-            # 信息区
-            name_lbl = Label(text=p['name'], font_size=28, color=app.color_text,
-                             size_hint_x=0.55, bold=True)
-            desc_lbl = Label(text=f"{p['description']}  ({p['card_count']}张)",
-                             font_size=22, color=app.color_text_sec,
-                             size_hint_x=0.25)
-
-            row.add_widget(color_lbl)
-            row.add_widget(name_lbl)
-            row.add_widget(desc_lbl)
-
+            row = tk.Frame(inner, bg=t['bg_card'], pady=a.sy(8))
+            row.pack(fill='x', padx=a.sx(10))
+            tk.Label(row, text='██', fg=p['color'], bg=t['bg_card'],
+                     font=('Microsoft YaHei', a.s(14))).pack(side='left')
+            tk.Label(row, text=p['name'], bg=t['bg_card'], fg=t['text'],
+                     font=('Microsoft YaHei', a.s(14), 'bold')).pack(side='left', padx=a.sx(5))
+            tk.Label(row, text=f"{p['description']}  ({p['card_count']}张)",
+                     bg=t['bg_card'], fg=t['text_sec'],
+                     font=('Microsoft YaHei', a.s(11))).pack(side='left', padx=a.sx(5))
             if p['imported']:
-                lbl = Label(text='已导入', font_size=24, size_hint_x=None, width=100,
-                            color=app.color_text_sec)
-                row.add_widget(lbl)
+                tk.Label(row, text='已导入', bg=t['bg_card'], fg=t['text_sec'],
+                         font=('Microsoft YaHei', a.s(11))).pack(side='right')
             else:
-                btn = Button(text='导入', font_size=26, size_hint_x=None, width=100,
-                             background_normal='', background_down='',
-                             background_color=app.color_accent, color=(1, 1, 1, 1))
-                pid = p['id']
+                tk.Button(row, text='导入', bg=t['accent'], fg='white', relief='flat',
+                          font=('Microsoft YaHei', a.s(12)),
+                          command=lambda pid=p['id']: [import_preset_deck(pid), popup.destroy(), self.refresh()]
+                          ).pack(side='right')
 
-                def do_import(instance, preset_id=pid):
-                    import_preset_deck(preset_id)
-                    popup.dismiss()
-                    self.refresh()
+        tk.Button(popup, text='关闭', bg=t['text_sec'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)),
+                  command=popup.destroy).pack(pady=a.sy(10))
 
-                btn.bind(on_release=do_import)
-                row.add_widget(btn)
-
-            grid.add_widget(row)
-            grid.height += 102
-
-        scroll.add_widget(grid)
-        content.add_widget(scroll)
-
-        close_btn = Button(text='关闭', font_size=26, size_hint_y=None, height=55,
-                           background_normal='', background_down='',
-                           background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        content.add_widget(close_btn)
-
-        popup = Popup(title='导入预设牌组', content=content, size_hint=(0.7, 0.6),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        close_btn.bind(on_release=popup.dismiss)
-        popup.open()
+    def apply_theme(self):
+        t = self.app.theme
+        self.configure(bg=t['bg'])
+        self._scroll_canvas.configure(bg=t['bg'])
+        self._deck_container.configure(bg=t['bg'])
 
 
-class CardEditorScreen(Screen):
-    """卡片编辑页 - 管理牌组内的卡片"""
-
-    def __init__(self, **kw):
-        super().__init__(**kw)
+class CardEditorFrame(tk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
         self._deck_id = None
+        self._build_ui()
 
-    def load_deck(self, deck_id):
-        self._deck_id = deck_id
+    def _build_ui(self):
+        t = self.app.theme
+        a = self.app
+
+        header = tk.Frame(self, bg=t['bg'])
+        header.pack(fill='x', padx=a.sx(20), pady=a.sy(10))
+
+        tk.Button(header, text='< 返回', font=('Microsoft YaHei', a.s(12)),
+                  bg=t['accent'], fg='white', relief='flat',
+                  command=self._go_back).pack(side='left')
+
+        self._title_label = tk.Label(header, text='编辑牌组',
+                                     font=('Microsoft YaHei', a.s(18), 'bold'),
+                                     bg=t['bg'], fg=t['text'])
+        self._title_label.pack(side='left', padx=a.sx(20))
+
+        tk.Button(header, text='+ 添加卡片', font=('Microsoft YaHei', a.s(12)),
+                  bg=t['accent'], fg='white', relief='flat',
+                  command=self._show_add_card).pack(side='right')
+
+        self._canvas = tk.Canvas(self, highlightthickness=0, bg=t['bg'])
+        self._canvas.pack(fill='both', expand=True, padx=a.sx(20), pady=(0, a.sy(10)))
+
+        self._card_container = tk.Frame(self._canvas, bg=t['bg'])
+        self._canvas_window = self._canvas.create_window((0, 0), window=self._card_container, anchor='nw')
+        self._card_container.bind('<Configure>',
+            lambda e: self._canvas.configure(scrollregion=self._canvas.bbox('all')))
+        self._canvas.bind('<Configure>', lambda e: self._canvas.itemconfig(
+            self._canvas_window, width=e.width))
+        self._canvas.bind('<Enter>',
+            lambda e: self._canvas.bind_all('<MouseWheel>',
+                lambda ev: self._canvas.yview_scroll(-1 * (ev.delta // 120), 'units')))
+        self._canvas.bind('<Leave>', lambda e: self._canvas.unbind_all('<MouseWheel>'))
+        _bind_touch_scroll(self._canvas)
+
+    def load(self, deck_id=None, **kwargs):
+        if deck_id is not None:
+            self._deck_id = deck_id
         self.refresh()
 
     def on_enter(self):
@@ -334,124 +400,334 @@ class CardEditorScreen(Screen):
             self.refresh()
 
     def refresh(self):
-        """刷新卡片列表"""
-        app = App.get_running_app()
-        container = self.ids.card_list
-        container.clear_widgets()
-
+        for w in self._card_container.winfo_children():
+            w.destroy()
+        t = self.app.theme
+        a = self.app
         deck = get_deck(self._deck_id)
-        self.ids.editor_title.text = f'编辑: {deck.name}'
+        self._title_label.configure(text=f'编辑: {deck.name}')
+
+        is_phone = a.screen_type == 'phone'
 
         for card in get_cards_by_deck(self._deck_id):
-            row = BoxLayout(size_hint_y=None, height=60, spacing=10)
-            _front = card.front if len(card.front) <= 20 else card.front[:20] + '...'
-            _back = card.back if len(card.back) <= 30 else card.back[:30] + '...'
-            front_lbl = Label(text=_front, font_size=24, size_hint_x=0.35, color=app.color_text,
-                              halign='left', valign='middle')
-            back_lbl = Label(text=_back, font_size=24, size_hint_x=0.35, color=app.color_text_sec,
-                             halign='left', valign='middle')
+            row = tk.Frame(self._card_container, bg=t['bg_card'], highlightbackground=t['border'],
+                          highlightthickness=1, padx=a.sx(10), pady=a.sy(8))
+            row.pack(fill='x', pady=a.sy(4))
 
-            cid = card.id
-            edit_btn = Button(text='编辑', font_size=22, size_hint_x=0.15,
-                              background_normal='', background_down='',
-                              background_color=app.color_warning, color=(1, 1, 1, 1))
-            del_btn = Button(text='删除', font_size=22, size_hint_x=0.15,
-                             background_normal='', background_down='',
-                             background_color=app.color_danger, color=(1, 1, 1, 1))
-            edit_btn.bind(on_release=lambda b, c=cid: self._edit_card(c))
-            del_btn.bind(on_release=lambda b, c=cid: self._delete_card(c))
+            front = card.front if len(card.front) <= 20 else card.front[:20] + '...'
+            back = card.back if len(card.back) <= 30 else card.back[:30] + '...'
 
-            row.add_widget(front_lbl)
-            row.add_widget(back_lbl)
-            row.add_widget(edit_btn)
-            row.add_widget(del_btn)
-            container.add_widget(row)
+            if is_phone:
+                # 手机: 纵向排列
+                tk.Label(row, text=front, bg=t['bg_card'], fg=t['text'],
+                         font=('Microsoft YaHei', a.s(12)), anchor='w').pack(fill='x')
+                tk.Label(row, text=back, bg=t['bg_card'], fg=t['text_sec'],
+                         font=('Microsoft YaHei', a.s(11)), anchor='w').pack(fill='x')
+            else:
+                tk.Label(row, text=front, bg=t['bg_card'], fg=t['text'],
+                         font=('Microsoft YaHei', a.s(12)), anchor='w').pack(side='left', fill='x', expand=True)
+                tk.Label(row, text=back, bg=t['bg_card'], fg=t['text_sec'],
+                         font=('Microsoft YaHei', a.s(11)), anchor='w').pack(side='left', fill='x', expand=True)
 
-    def show_add_card(self):
-        """添加卡片弹窗"""
-        if not self._deck_id:
-            return
-        app = App.get_running_app()
-        content = BoxLayout(orientation='vertical', spacing=15, padding=20)
-        front_input = TextInput(hint_text='正面 (问题)', font_size=28, size_hint_y=None, height=80,
-                                foreground_color=app.color_text)
-        back_input = TextInput(hint_text='背面 (答案)', font_size=28, size_hint_y=None, height=80,
-                               foreground_color=app.color_text)
-        btns = BoxLayout(size_hint_y=None, height=60, spacing=20)
-        confirm = Button(text='确定', font_size=28, background_normal='', background_down='',
-                         background_color=app.color_accent, color=(1, 1, 1, 1))
-        cancel = Button(text='取消', font_size=28, background_normal='', background_down='',
-                        background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        btns.add_widget(confirm)
-        btns.add_widget(cancel)
-        content.add_widget(front_input)
-        content.add_widget(back_input)
-        _bind_exclusive_focus([front_input, back_input])
-        content.add_widget(btns)
+            tk.Button(row, text='编辑', bg=t['warning'], fg='white', relief='flat',
+                      font=('Microsoft YaHei', a.s(10)),
+                      command=lambda c=card.id: self._edit_card(c)).pack(side='right', padx=a.sx(2))
+            tk.Button(row, text='删除', bg=t['danger'], fg='white', relief='flat',
+                      font=('Microsoft YaHei', a.s(10)),
+                      command=lambda c=card.id: [delete_card(c), self.refresh()]).pack(side='right', padx=a.sx(2))
 
-        popup = Popup(title='添加卡片', content=content, size_hint=(0.5, 0.4),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        cancel.bind(on_release=lambda b: _dismiss_and_unfocus(popup))
-
-        def do_add(instance):
-            f, b = front_input.text.strip(), back_input.text.strip()
-            if f and b:
-                create_card(self._deck_id, f, b)
-                _dismiss_and_unfocus(popup)
-                self.refresh()
-
-        confirm.bind(on_release=do_add)
-        popup.open()
+    def _show_add_card(self):
+        self._show_card_dialog()
 
     def _edit_card(self, card_id):
-        """编辑卡片弹窗"""
         card = get_card(card_id)
-        if not card:
+        if card:
+            self._show_card_dialog(card)
+
+    def _show_card_dialog(self, card=None):
+        t = self.app.theme
+        a = self.app
+        popup = tk.Toplevel(self)
+        popup.title('编辑卡片' if card else '添加卡片')
+        popup.geometry(f'{a.sx(450)}x{a.sy(250)}')
+        popup.configure(bg=t['bg_card'])
+        popup.transient(self)
+        popup.grab_set()
+
+        tk.Label(popup, text='正面 (问题)', bg=t['bg_card'], fg=t['text'],
+                 font=('Microsoft YaHei', a.s(12))).pack(anchor='w', padx=a.sx(20), pady=(a.sy(15), 0))
+        front_entry = tk.Entry(popup, font=('Microsoft YaHei', a.s(14)))
+        front_entry.pack(fill='x', padx=a.sx(20))
+        if card:
+            front_entry.insert(0, card.front)
+
+        tk.Label(popup, text='背面 (答案)', bg=t['bg_card'], fg=t['text'],
+                 font=('Microsoft YaHei', a.s(12))).pack(anchor='w', padx=a.sx(20), pady=(a.sy(10), 0))
+        back_entry = tk.Entry(popup, font=('Microsoft YaHei', a.s(14)))
+        back_entry.pack(fill='x', padx=a.sx(20))
+        if card:
+            back_entry.insert(0, card.back)
+
+        def do_save():
+            f = front_entry.get().strip()
+            b = back_entry.get().strip()
+            if f and b:
+                if card:
+                    update_card(card.id, f, b)
+                else:
+                    create_card(self._deck_id, f, b)
+                popup.destroy()
+                self.refresh()
+
+        btn_frame = tk.Frame(popup, bg=t['bg_card'])
+        btn_frame.pack(fill='x', padx=a.sx(20), pady=a.sy(15))
+        tk.Button(btn_frame, text='保存', bg=t['accent'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)), command=do_save).pack(side='left', expand=True)
+        tk.Button(btn_frame, text='取消', bg=t['text_sec'], fg='white', relief='flat',
+                  font=('Microsoft YaHei', a.s(12)), command=popup.destroy).pack(side='left', expand=True)
+
+    def _go_back(self):
+        self.app.show_tab('flashcards')
+
+    def apply_theme(self):
+        t = self.app.theme
+        self.configure(bg=t['bg'])
+        self._canvas.configure(bg=t['bg'])
+        self._card_container.configure(bg=t['bg'])
+
+
+class StudyFrame(tk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self._cards = []
+        self._index = 0
+        self._total = 0
+        self._flipped = False
+        self._is_daily = False
+        self._deck_id = None
+        self._card_scroll_active = False
+        self._build_ui()
+
+    def _build_ui(self):
+        t = self.app.theme
+        a = self.app
+
+        header = tk.Frame(self, bg=t['bg'])
+        header.pack(fill='x', padx=a.sx(20), pady=a.sy(10))
+
+        tk.Button(header, text='< 返回', font=('Microsoft YaHei', a.s(12)),
+                  bg=t['accent'], fg='white', relief='flat',
+                  command=self._go_back).pack(side='left')
+
+        self._study_title = tk.Label(header, text='学习',
+                                     font=('Microsoft YaHei', a.s(18), 'bold'),
+                                     bg=t['bg'], fg=t['text'])
+        self._study_title.pack(side='left', padx=a.sx(20))
+
+        self._progress_label = tk.Label(header, text='0/0',
+                                        font=('Microsoft YaHei', a.s(14)),
+                                        bg=t['bg'], fg=t['text_sec'])
+        self._progress_label.pack(side='right')
+
+        # 卡片区域 (外框 + 内部可滚动)
+        self._card_frame = tk.Frame(self, bg=t['bg'], padx=a.sx(40), pady=a.sy(20))
+        self._card_frame.pack(fill='both', expand=True)
+
+        self._card_box = tk.Frame(self._card_frame, bg=t['bg_card'], highlightbackground=t['border'],
+                                  highlightthickness=2)
+        self._card_box.place(relx=0.5, rely=0.45, anchor='center', relwidth=0.6, relheight=0.6)
+
+        # 可滚动的卡片内容区
+        self._card_canvas = tk.Canvas(self._card_box, bg=t['bg_card'], highlightthickness=0)
+        self._card_scrollbar = tk.Scrollbar(self._card_box, orient='vertical',
+                                            command=self._card_canvas.yview)
+        self._card_inner = tk.Frame(self._card_canvas, bg=t['bg_card'])
+        self._card_inner.bind('<Configure>',
+            lambda e: self._card_canvas.configure(scrollregion=self._card_canvas.bbox('all')))
+        self._card_canvas_window = self._card_canvas.create_window(
+            (0, 0), window=self._card_inner, anchor='nw', tags='inner')
+        self._card_canvas.configure(yscrollcommand=self._on_card_scroll)
+
+        self._card_canvas.pack(side='left', fill='both', expand=True, padx=a.sx(30), pady=a.sy(30))
+        self._card_scrollbar.pack(side='right', fill='y')
+
+        # Canvas 宽度随容器变化
+        self._card_canvas.bind('<Configure>',
+            lambda e: self._card_canvas.itemconfig('inner', width=e.width))
+
+        # 鼠标滚轮 (仅在卡片区域内生效)
+        self._card_canvas.bind('<Enter>', self._bind_card_wheel)
+        self._card_canvas.bind('<Leave>',
+            lambda e: self._card_canvas.unbind_all('<MouseWheel>'))
+
+        self._card_label = tk.Label(self._card_inner, text='',
+                                    font=('Microsoft YaHei', a.s(28), 'bold'),
+                                    bg=t['bg_card'], fg=t['text'], wraplength=a.sx(500),
+                                    justify='center')
+        self._card_label.pack(fill='x', padx=a.sx(10), pady=a.sy(10))
+
+        # 触屏拖动滚动 + 点击翻转 (区分拖动与点击)
+        self._touch_start_y = 0
+        self._touch_dragged = False
+        self._card_canvas.bind('<ButtonPress-1>', self._on_touch_press)
+        self._card_canvas.bind('<B1-Motion>', self._on_touch_drag)
+        self._card_canvas.bind('<ButtonRelease-1>', self._on_touch_release)
+        self._card_label.bind('<Button-1>', lambda e: self._flip_card())
+
+        self._hint_label = tk.Label(self, text='点击卡片查看答案',
+                                    font=('Microsoft YaHei', a.s(12)),
+                                    bg=t['bg'], fg=t['text_sec'])
+        self._hint_label.pack(pady=(a.sy(5), a.sy(10)))
+
+        # 评分按钮
+        btn_frame = tk.Frame(self, bg=t['bg'])
+        btn_frame.pack(pady=(0, a.sy(20)))
+
+        self._grade_buttons = []
+        for grade, (text, color) in enumerate([('重来', 'danger'), ('困难', 'warning'),
+                                                ('良好', 'success'), ('简单', 'accent')]):
+            btn = tk.Button(btn_frame, text=text, font=('Microsoft YaHei', a.s(14)),
+                           bg=t[color], fg='white', relief='flat', width=8,
+                           state='disabled',
+                           command=lambda g=grade: self._grade_card(g))
+            btn.pack(side='left', padx=a.sx(15))
+            self._grade_buttons.append((btn, grade, color))
+
+    def _on_card_scroll(self, first, last):
+        first, last = float(first), float(last)
+        self._card_scrollbar.set(first, last)
+        visible = not (first <= 0.0 and last >= 1.0)
+        if visible != self._card_scroll_active:
+            self._card_scroll_active = visible
+            if visible:
+                self._card_scrollbar.pack(side='right', fill='y')
+            else:
+                self._card_scrollbar.pack_forget()
+
+    def _bind_card_wheel(self, event):
+        def _on_wheel(ev):
+            if self._card_scroll_active:
+                self._card_canvas.yview_scroll(-1 * (ev.delta // 120), 'units')
+        self._card_canvas.bind_all('<MouseWheel>', _on_wheel)
+
+    def _on_touch_press(self, event):
+        self._touch_start_y = event.y
+        self._touch_dragged = False
+
+    def _on_touch_drag(self, event):
+        dy = event.y - self._touch_start_y
+        if abs(dy) > 5:
+            self._touch_dragged = True
+            self._card_canvas.yview_scroll(int(-dy / 3), 'units')
+            self._touch_start_y = event.y
+
+    def _on_touch_release(self, event):
+        if not self._touch_dragged:
+            self._flip_card()
+
+    def load(self, deck_id=None, **kwargs):
+        if deck_id is not None:
+            self._deck_id = deck_id
+            deck = get_deck(deck_id)
+            self._study_title.configure(text=deck.name)
+            self._is_daily = deck.is_system == 2
+            if self._is_daily:
+                self._cards = get_new_cards(deck_id) + get_due_cards(deck_id)
+            else:
+                self._cards = get_study_cards(deck_id, deck.daily_new_limit)
+            self._index = 0
+            self._total = len(self._cards)
+            self._show_card()
+
+    def _show_card(self):
+        t = self.app.theme
+        if self._index >= len(self._cards):
+            if self._is_daily:
+                remaining = get_due_cards(self._deck_id)
+                if remaining:
+                    self._cards = remaining
+                    self._index = 0
+                    card = self._cards[self._index]
+                    self._flipped = False
+                    self._card_label.configure(text=card.front)
+                    self._hint_label.configure(text='点击卡片查看答案 (未掌握，继续循环)')
+                    mastered = self._total - len(remaining)
+                    self._progress_label.configure(text=f'已掌握 {mastered}/{self._total}')
+                    self._card_box.configure(bg=t['bg_card'])
+                    self._set_buttons_enabled(False)
+                    return
+
+            self._card_label.configure(text='全部学完！')
+            self._hint_label.configure(text='')
+            self._progress_label.configure(text=f'已学 {self._total}/{self._total}')
+            if self._total > 0:
+                checkin_deck(self._deck_id)
+            self._set_buttons_enabled(False)
             return
-        app = App.get_running_app()
-        content = BoxLayout(orientation='vertical', spacing=15, padding=20)
-        front_input = TextInput(text=card.front, font_size=28, size_hint_y=None, height=80,
-                                foreground_color=app.color_text)
-        back_input = TextInput(text=card.back, font_size=28, size_hint_y=None, height=80,
-                               foreground_color=app.color_text)
-        btns = BoxLayout(size_hint_y=None, height=60, spacing=20)
-        confirm = Button(text='保存', font_size=28, background_normal='', background_down='',
-                         background_color=app.color_accent, color=(1, 1, 1, 1))
-        cancel = Button(text='取消', font_size=28, background_normal='', background_down='',
-                        background_color=app.color_text_sec, color=(1, 1, 1, 1))
-        btns.add_widget(confirm)
-        btns.add_widget(cancel)
-        content.add_widget(front_input)
-        content.add_widget(back_input)
-        _bind_exclusive_focus([front_input, back_input])
-        content.add_widget(btns)
 
-        popup = Popup(title='编辑卡片', content=content, size_hint=(0.5, 0.4),
-                      background='', background_color=app.color_bg_card,
-                      title_color=app.color_text, separator_color=app.color_border)
-        cancel.bind(on_release=lambda b: _dismiss_and_unfocus(popup))
+        card = self._cards[self._index]
+        self._flipped = False
+        self._card_label.configure(text=card.front)
+        self._hint_label.configure(text='点击卡片查看答案')
+        self._progress_label.configure(text=f'已学 {self._index}/{self._total}')
+        self._card_box.configure(bg=t['bg_card'])
+        self._set_buttons_enabled(False)
 
-        def do_save(instance):
-            update_card(card_id, front_input.text.strip(), back_input.text.strip())
-            _dismiss_and_unfocus(popup)
-            self.refresh()
+    def _flip_card(self):
+        if self._flipped or self._index >= len(self._cards):
+            return
+        self._flipped = True
+        card = self._cards[self._index]
+        self._card_label.configure(text=card.back)
+        self._hint_label.configure(text='为这张卡片评分')
+        self._set_buttons_enabled(True)
 
-        confirm.bind(on_release=do_save)
-        popup.open()
+    def _grade_card(self, grade):
+        if self._index >= len(self._cards):
+            return
+        t = self.app.theme
+        card = self._cards[self._index]
+        add_study_record(card.id, grade)
 
-    def _delete_card(self, card_id):
-        """删除单张卡片"""
-        delete_card(card_id)
-        self.refresh()
+        if self._is_daily:
+            from datetime import datetime, timedelta
+            if grade >= 2:
+                new_level, next_review = 5, (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                new_level, next_review = 0, datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            from .repository import upsert_card_progress
+            upsert_card_progress(card.id, new_level, next_review)
+        else:
+            progress = process_grade(card.id, grade)
+            if progress and progress['level'] >= 5:
+                vocab_deck_id = get_vocab_deck_id()
+                if vocab_deck_id and card.deck_id == vocab_deck_id:
+                    from ..dictionary.repository import delete_vocab_by_card_id
+                    delete_vocab_by_card_id(card.id)
 
-    def go_back(self):
-        """返回牌组列表"""
-        self.manager.current = 'deck_list'
+        colors = {0: '#EF4444', 1: '#F97316', 2: '#14B8A6', 3: '#6366F1'}
+        self._card_box.configure(bg=colors.get(grade, t['bg_card']))
+        self._index += 1
+        self.after(500, self._show_card)
 
+    def _set_buttons_enabled(self, enabled):
+        state = 'normal' if enabled else 'disabled'
+        for btn, _, _ in self._grade_buttons:
+            btn.configure(state=state)
 
-def register_screens(screen_manager):
-    """注册所有卡片学习相关屏幕"""
-    screen_manager.add_widget(DeckListScreen(name='deck_list'))
-    screen_manager.add_widget(CardEditorScreen(name='card_editor'))
-    screen_manager.add_widget(StudyScreen(name='study'))
+    def _go_back(self):
+        self.app.show_tab('flashcards')
+
+    def apply_theme(self):
+        t = self.app.theme
+        self.configure(bg=t['bg'])
+        self._card_frame.configure(bg=t['bg'])
+        self._card_canvas.configure(bg=t['bg_card'])
+        self._card_inner.configure(bg=t['bg_card'])
+        self._card_label.configure(bg=t['bg_card'], fg=t['text'])
+        self._hint_label.configure(bg=t['bg'], fg=t['text_sec'])
+        self._progress_label.configure(bg=t['bg'], fg=t['text_sec'])
+        self._study_title.configure(bg=t['bg'], fg=t['text'])
+        for btn, grade, color in self._grade_buttons:
+            btn.configure(bg=t[color])
