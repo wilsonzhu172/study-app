@@ -127,35 +127,30 @@ class QuizScreen(Screen):
     def _generate_choices(self, correct, all_translations):
         wrong = [t for t in set(all_translations) if t != correct]
         random.shuffle(wrong)
+        # 最多取4个不同干扰项
         choices = [correct] + wrong[:4]
-        while len(choices) < 5 and wrong:
-            extra = random.choice(wrong)
-            if extra not in choices:
-                choices.append(extra)
+        # 不够5个时，允许重复干扰项
         while len(choices) < 5:
-            choices.append(correct + ' (同)')
+            choices.append(random.choice(wrong) if wrong else correct)
         random.shuffle(choices)
         return choices
 
     def _show_quiz(self):
-        quiz = self.ids.get('quiz_content')
-        empty = self.ids.get('empty_message')
-        if quiz:
-            quiz.size_hint_y = 1
-        if empty:
-            empty.height = 0
-            empty.text = ''
+        self.ids.question_word.font_size = 56
+        self.ids.question_word.bold = True
+        self.ids.question_word.halign = 'left'
 
     def _show_safe_empty(self, message):
-        """安全地显示空状态，不依赖 quiz_content"""
-        quiz = self.ids.get('quiz_content')
-        empty = self.ids.get('empty_message')
-        if quiz:
-            quiz.size_hint_y = None
-            quiz.height = 0
-        if empty:
-            empty.height = 400
-            empty.text = message
+        self.ids.question_word.text = message
+        self.ids.question_word.font_size = 36
+        self.ids.question_word.bold = False
+        self.ids.question_word.halign = 'center'
+        self.ids.choices_grid.clear_widgets()
+        self.ids.feedback_label.text = ''
+        self.ids.confirm_btn.disabled = True
+        self.ids.confirm_btn.opacity = 0
+        self.ids.next_btn.disabled = True
+        self.ids.next_btn.opacity = 0
 
     def _next(self):
         if not self._questions:

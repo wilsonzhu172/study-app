@@ -30,7 +30,7 @@
                 text_size: self.size
                 size_hint_x: 0.3
 
-        # 主内容卡片
+        # 主内容卡片 (始终占满空间)
         BoxLayout:
             orientation: 'vertical'
             id: quiz_content
@@ -50,28 +50,17 @@
                     size: self.size
                     radius: [16]
 
-            # 题干: 英文单词
+            # 题干 / 空状态提示 (复用同一个 Label)
             Label:
                 id: question_word
                 text: ''
-                font_size: 56
-                bold: True
+                font_size: 36
                 color: app.color_text
-                size_hint_y: None
-                height: 80
+                halign: 'center'
+                valign: 'middle'
+                text_size: self.size
 
-            # 分隔线
-            Label:
-                size_hint_y: None
-                height: 2
-                canvas.before:
-                    Color:
-                        rgba: app.color_border
-                    Rectangle:
-                        pos: self.pos
-                        size: self.size
-
-            # 选项区: 5个选项按钮
+            # 选项区
             GridLayout:
                 id: choices_grid
                 cols: 1
@@ -97,7 +86,6 @@
                 BoxLayout:
                     size_hint_x: None
                     width: 200
-                    # 确定按钮
                     Button:
                         id: confirm_btn
                         text: '确定'
@@ -109,7 +97,6 @@
                         disabled: True
                         on_press: root.confirm_answer()
 
-                    # 下一题按钮
                     Button:
                         id: next_btn
                         text: '下一题'
@@ -130,15 +117,3 @@
             color: app.color_text_sec
             size_hint_y: None
             height: 40
-
-        # 空状态提示
-        Label:
-            id: empty_message
-            text: ''
-            font_size: 36
-            color: app.color_text_sec
-            halign: 'center'
-            valign: 'middle'
-            text_size: self.size
-            size_hint_y: None
-            height: 0
