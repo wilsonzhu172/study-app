@@ -20,7 +20,7 @@ from kivy.lang import Builder
 from kivy.properties import ListProperty, StringProperty
 from kivy.clock import Clock
 
-from studyapp.core.database import init_db
+from studyapp.core.database import init_db, backup_db
 from studyapp.core.theme import LIGHT, DARK
 from studyapp.features.flashcards.screens import register_screens as register_flashcards
 from studyapp.features.dictionary.screens import register_screens as register_dictionary
@@ -165,6 +165,12 @@ class StudyApp(App):
         self.color_border = theme['border']
         self.color_shadow = theme['shadow']
         self.theme_label = '浅色模式' if self._is_dark else '深色模式'
+
+    def quit_app(self):
+        """备份数据库并退出应用"""
+        backup_db()
+        from kivy.core.window import Window
+        Window.close()
 
 
 if __name__ == '__main__':

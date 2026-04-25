@@ -1,7 +1,8 @@
 import sqlite3
 import csv
 import os
-from .paths import get_db_path
+import shutil
+from .paths import get_db_path, get_backup_db_path
 
 _connection = None
 
@@ -145,6 +146,42 @@ def init_db():
 
     # Load preset data from CSV files (only if preset_decks is empty)
     _load_presets(conn)
+
+    # 启动时: 从备份恢复 (重装后首次启动，数据库是空的)
+    _restore_from_backup(conn)
+
+
+def backup_db():
+    """备份数据库到公共目录"""
+    global _connection
+    if _connection:
+        _connection.commit()
+        _connection.close()
+        _connection = None
+    db_path = get_db_path()
+    backup_path = get_backup_db_path()
+    if os.path.exists(db_path):
+        shutil.copy2(db_path, backup_path)
+
+
+def _restore_from_backup(conn):
+    """如果当前数据库是空的，从备份恢复"""
+    backup_path = get_backup_db_path()
+    if not os.path.exists(backup_path):
+        return
+    # 检查是否有用户数据 (decks 表有非系统记录，或有 study_records)
+    row = conn.execute("SELECT COUNT(*) FROM study_records").fetchone()
+    if row[0] > 0:
+        return  # 已有数据，不需要恢复
+    # 数据库是空的，从备份恢复
+    db_path = get_db_path()
+    conn.close()
+    global _connection
+    _connection = None
+    shutil.copy2(backup_path, db_path)
+    _connection = sqlite3.connect(db_path)
+    _connection.row_factory = sqlite3.Row
+    _connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _load_presets(conn):
