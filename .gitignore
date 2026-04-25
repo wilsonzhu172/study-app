@@ -15,6 +15,7 @@ wheels/
 
 # Database
 *.db
+!studyapp/assets/dict/stardict.db
 
 # Temp files
 files/
