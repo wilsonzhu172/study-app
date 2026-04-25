@@ -165,7 +165,6 @@ def backup_db():
             shutil.copy2(db_path, backup_path)
     except (PermissionError, OSError):
         # 没有存储权限，跳过备份
-        global _connection
         if _connection is None:
             _connection = sqlite3.connect(get_db_path())
             _connection.row_factory = sqlite3.Row
@@ -174,6 +173,7 @@ def backup_db():
 
 def _restore_from_backup(conn):
     """如果当前数据库是空的，从备份恢复"""
+    global _connection
     try:
         backup_path = get_backup_db_path()
         if not os.path.exists(backup_path):
@@ -185,7 +185,6 @@ def _restore_from_backup(conn):
         # 数据库是空的，从备份恢复
         db_path = get_db_path()
         conn.close()
-        global _connection
         _connection = None
         shutil.copy2(backup_path, db_path)
         _connection = sqlite3.connect(db_path)
@@ -193,7 +192,6 @@ def _restore_from_backup(conn):
         _connection.execute("PRAGMA foreign_keys = ON")
     except (PermissionError, OSError):
         # 没有存储权限，跳过恢复，重建连接
-        global _connection
         if _connection is None:
             _connection = sqlite3.connect(get_db_path())
             _connection.row_factory = sqlite3.Row
