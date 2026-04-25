@@ -1,0 +1,212 @@
+#:kivy 2.3.0
+
+# === 英文词典页 - 搜索 + 左右分栏卡片布局 ===
+<DictionaryScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [30, 20]
+        spacing: 20
+
+        # 搜索栏卡片 (圆角 + 阴影)
+        BoxLayout:
+            size_hint_y: None
+            height: 70
+            spacing: 16
+            padding: [10, 8, 10, 10]
+            canvas.before:
+                Color:
+                    rgba: app.color_shadow
+                RoundedRectangle:
+                    pos: self.x + 2, self.y - 2
+                    size: self.width + 2, self.height + 2
+                    radius: [20]
+                Color:
+                    rgba: app.color_bg_card
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [16]
+            TextInput:
+                id: search_input
+                hint_text: '输入英文单词...'
+                font_size: 32
+                multiline: False
+                size_hint_x: 0.8
+                foreground_color: app.color_text
+                on_text_validate: root.do_search()
+            Button:
+                text: '查询'
+                font_size: 28
+                size_hint_x: 0.2
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.do_search()
+
+        # 主内容区: 左侧单词详情 + 右侧搜索历史
+        BoxLayout:
+            spacing: 24
+
+            # 左侧: 单词详情卡片
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_x: 0.6
+                spacing: 12
+                padding: [24, 20]
+                canvas.before:
+                    Color:
+                        rgba: app.color_shadow
+                    RoundedRectangle:
+                        pos: self.x + 2, self.y - 2
+                        size: self.width + 2, self.height + 2
+                        radius: [20]
+                    Color:
+                        rgba: app.color_bg_card
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [16]
+
+                # 单词行: 单词 + 音标 + 播放按钮
+                BoxLayout:
+                    size_hint_y: None
+                    height: 60
+                    spacing: 20
+                    Label:
+                        id: result_word
+                        text: ''
+                        font_size: 48
+                        bold: True
+                        color: app.color_text
+                        size_hint_x: 0.7
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    Label:
+                        id: result_phonetic
+                        text: ''
+                        font_name: 'IPAFont'
+                        font_size: 30
+                        color: app.color_text_sec
+                        size_hint_x: 0.2
+                    Button:
+                        text: '播放'
+                        font_size: 24
+                        size_hint_x: None
+                        width: 80
+                        background_normal: ''
+                        background_down: ''
+                        background_color: app.color_accent
+                        color: (1, 1, 1, 1)
+                        on_press: root.play_pronunciation()
+
+                # 中文释义
+                Label:
+                    id: result_translation
+                    text: ''
+                    font_size: 32
+                    color: app.color_text
+                    bold: True
+                    halign: 'left'
+                    valign: 'top'
+                    text_size: self.size
+                    size_hint_y: 0.3
+
+                # 英文释义
+                Label:
+                    id: result_definition
+                    text: ''
+                    font_size: 26
+                    color: app.color_text_sec
+                    halign: 'left'
+                    valign: 'top'
+                    text_size: self.size
+                    size_hint_y: 0.2
+
+                # 例句
+                Label:
+                    id: result_example
+                    text: ''
+                    font_size: 26
+                    color: app.color_accent
+                    italic: True
+                    halign: 'left'
+                    valign: 'top'
+                    text_size: self.size
+                    size_hint_y: 0.2
+
+                # 状态提示
+                Label:
+                    id: status_label
+                    text: ''
+                    font_size: 22
+                    color: app.color_success
+                    size_hint_y: None
+                    height: 36
+
+            # 右侧: 搜索历史卡片
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_x: 0.4
+                spacing: 12
+                padding: [24, 20]
+                canvas.before:
+                    Color:
+                        rgba: app.color_shadow
+                    RoundedRectangle:
+                        pos: self.x + 2, self.y - 2
+                        size: self.width + 2, self.height + 2
+                        radius: [20]
+                    Color:
+                        rgba: app.color_bg_card
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [16]
+
+                Label:
+                    text: '搜索历史'
+                    font_size: 28
+                    bold: True
+                    color: app.color_text
+                    size_hint_y: None
+                    height: 50
+
+                ScrollView:
+                    GridLayout:
+                        id: history_list
+                        cols: 1
+                        spacing: 8
+                        size_hint_y: None
+                        height: self.minimum_height
+
+
+# === 生词本列表页 ===
+<VocabListScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [30, 20]
+        spacing: 20
+
+        # 标题
+        BoxLayout:
+            size_hint_y: None
+            height: 60
+            Label:
+                text: '我的生词本'
+                font_size: 40
+                color: app.color_text
+                bold: True
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+
+        # 生词列表
+        ScrollView:
+            GridLayout:
+                id: vocab_grid
+                cols: 1
+                spacing: 12
+                size_hint_y: None
+                height: self.minimum_height

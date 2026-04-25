@@ -106,13 +106,6 @@ def init_db():
         )
     conn.commit()
 
-    # Add last_checkin column if not exists
-    try:
-        conn.execute("ALTER TABLE decks ADD COLUMN last_checkin TEXT DEFAULT NULL")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-
     # Create "daily vocabulary" deck if not exists (is_system = 2)
     from datetime import datetime
     today = datetime.now().strftime('%Y-%m-%d')

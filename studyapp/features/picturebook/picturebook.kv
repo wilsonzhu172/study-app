@@ -1,0 +1,244 @@
+#:kivy 2.3.0
+
+<PictureBookScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [30, 20]
+        spacing: 20
+
+        # 标题
+        Label:
+            text: '绘本打卡'
+            font_size: 40
+            color: app.color_text
+            bold: True
+            size_hint_y: None
+            height: 60
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+
+        # 今日打卡卡片
+        BoxLayout:
+            size_hint_y: None
+            height: 100
+            padding: [24, 15]
+            spacing: 20
+            canvas.before:
+                Color:
+                    rgba: app.color_shadow
+                RoundedRectangle:
+                    pos: self.x + 2, self.y - 2
+                    size: self.width + 2, self.height + 2
+                    radius: [16]
+                Color:
+                    rgba: app.color_bg_card
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [16]
+
+            Label:
+                id: today_status
+                text: '今日尚未打卡'
+                font_size: 28
+                color: app.color_text
+                size_hint_x: 0.7
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+            Button:
+                id: btn_checkin
+                text: '打卡'
+                font_size: 28
+                size_hint_x: 0.15
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_accent
+                color: (1, 1, 1, 1)
+                on_press: root.show_checkin_popup()
+
+        # 图表区域
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_y: 1
+            spacing: 10
+            padding: [24, 15]
+            canvas.before:
+                Color:
+                    rgba: app.color_shadow
+                RoundedRectangle:
+                    pos: self.x + 2, self.y - 2
+                    size: self.width + 2, self.height + 2
+                    radius: [16]
+                Color:
+                    rgba: app.color_bg_card
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [16]
+
+            # 切换按钮 + 图例
+            BoxLayout:
+                size_hint_y: None
+                height: 50
+                spacing: 20
+                Button:
+                    id: btn_7d
+                    text: '7天'
+                    font_size: 22
+                    size_hint_x: None
+                    width: 80
+                    background_normal: ''
+                    background_down: ''
+                    background_color: app.color_accent
+                    color: (1, 1, 1, 1)
+                    on_press: root.set_range(7)
+                Button:
+                    id: btn_30d
+                    text: '30天'
+                    font_size: 22
+                    size_hint_x: None
+                    width: 80
+                    background_normal: ''
+                    background_down: ''
+                    background_color: app.color_bg_card
+                    color: app.color_text_sec
+                    on_press: root.set_range(30)
+                Label:
+                    id: chart_label
+                    text: ''
+                    font_size: 18
+                    color: app.color_text_sec
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+
+            # 图表
+            ChartWidget:
+                id: chart
+                size_hint_y: 1
+
+        # 统计摘要卡片
+        GridLayout:
+            cols: 4
+            size_hint_y: None
+            height: 80
+            spacing: 15
+            padding: [10, 5]
+
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [12, 8]
+                canvas.before:
+                    Color:
+                        rgba: app.color_shadow
+                    RoundedRectangle:
+                        pos: self.x + 2, self.y - 2
+                        size: self.width + 2, self.height + 2
+                        radius: [12]
+                    Color:
+                        rgba: app.color_bg_card
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [12]
+                Label:
+                    text: '近1周'
+                    font_size: 18
+                    color: app.color_text_sec
+                    size_hint_y: None
+                    height: 25
+                Label:
+                    id: stats_1w
+                    text: '0本 / 均正确0%'
+                    font_size: 20
+                    color: app.color_text
+                    bold: True
+
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [12, 8]
+                canvas.before:
+                    Color:
+                        rgba: app.color_shadow
+                    RoundedRectangle:
+                        pos: self.x + 2, self.y - 2
+                        size: self.width + 2, self.height + 2
+                        radius: [12]
+                    Color:
+                        rgba: app.color_bg_card
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [12]
+                Label:
+                    text: '近1月'
+                    font_size: 18
+                    color: app.color_text_sec
+                    size_hint_y: None
+                    height: 25
+                Label:
+                    id: stats_1m
+                    text: '0本 / 均正确0%'
+                    font_size: 20
+                    color: app.color_text
+                    bold: True
+
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [12, 8]
+                canvas.before:
+                    Color:
+                        rgba: app.color_shadow
+                    RoundedRectangle:
+                        pos: self.x + 2, self.y - 2
+                        size: self.width + 2, self.height + 2
+                        radius: [12]
+                    Color:
+                        rgba: app.color_bg_card
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [12]
+                Label:
+                    text: '近3月'
+                    font_size: 18
+                    color: app.color_text_sec
+                    size_hint_y: None
+                    height: 25
+                Label:
+                    id: stats_3m
+                    text: '0本 / 均正确0%'
+                    font_size: 20
+                    color: app.color_text
+                    bold: True
+
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [12, 8]
+                canvas.before:
+                    Color:
+                        rgba: app.color_shadow
+                    RoundedRectangle:
+                        pos: self.x + 2, self.y - 2
+                        size: self.width + 2, self.height + 2
+                        radius: [12]
+                    Color:
+                        rgba: app.color_bg_card
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [12]
+                Label:
+                    text: '近1年'
+                    font_size: 18
+                    color: app.color_text_sec
+                    size_hint_y: None
+                    height: 25
+                Label:
+                    id: stats_1y
+                    text: '0本 / 均正确0%'
+                    font_size: 20
+                    color: app.color_text
+                    bold: True

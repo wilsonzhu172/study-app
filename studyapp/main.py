@@ -1,219 +1,164 @@
-import tkinter as tk
-from tkinter import font as tkfont
+import os
+
+# 必须在导入kivy之前设置环境变量
+os.environ['KIVY_NO_ARGS'] = '1'
+os.environ['KIVY_NO_KV'] = '1'
+
+# 设置中文字体
+_font_path = os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'NotoSansSC-Regular.ttf')
+if os.path.exists(_font_path):
+    _font_path = os.path.abspath(_font_path)
+    from kivy.config import Config
+    Config.set('kivy', 'default_font', [_font_path, _font_path, _font_path, _font_path])
+    if not os.environ.get('ANDROID_ROOT'):
+        Config.set('kivy', 'keyboard_mode', 'systemandmulti')
+
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.core.window import Window
+from kivy.lang import Builder
+from kivy.properties import ListProperty, StringProperty
+from kivy.clock import Clock
 
 from studyapp.core.database import init_db
 from studyapp.core.theme import LIGHT, DARK
+from studyapp.features.flashcards.screens import register_screens as register_flashcards
+from studyapp.features.dictionary.screens import register_screens as register_dictionary
+from studyapp.features.picturebook.screens import register_screens as register_picturebook
 
-# 基准分辨率 (设计参考)
-_REF_W, _REF_H = 1280, 720
+# 窗口大小 (适配21.5寸学习机横屏, Android上使用全屏)
+if not os.environ.get('ANDROID_ROOT'):
+    Window.size = (1920, 1080)
+
+# 加载根KV布局
+kv_path = os.path.join(os.path.dirname(__file__), 'studyapp.kv')
+if not Builder.files:
+    Builder.load_file(kv_path)
 
 
-class StudyApp(tk.Tk):
-    """学习助手主应用 - 自适应屏幕"""
+class RootWidget(BoxLayout):
+    """根布局 - 顶部导航 + 内容区 + 底部导航"""
 
-    def __init__(self):
-        super().__init__()
-        self.title('学习助手')
+    # 当前激活的底部导航标签
+    active_tab = StringProperty('flashcards')
 
-        init_db()
+    def on_touch_down(self, touch):
+        from kivy.uix.textinput import TextInput
+        from kivy.uix.vkeyboard import VKeyboard
+        from kivy.uix.popup import Popup
 
+        # 点击虚拟键盘时不取消焦点，让键盘正常工作
+        for vk in Window.children:
+            if isinstance(vk, VKeyboard) and vk.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
+
+        # 查找当前聚焦的TextInput (包括Popup内的)
+        focused = self._find_focused(self)
+        if not focused:
+            for child in Window.children:
+                if isinstance(child, Popup):
+                    focused = self._find_focused(child)
+                    if focused:
+                        break
+
+        # 点击输入框外部时收起键盘
+        if focused and not focused.collide_point(*touch.pos):
+            focused.focus = False
+
+        # 延迟一帧清理多余虚拟键盘 (在focus切换和新键盘创建之后)
+        Clock.schedule_once(self._dedup_vkeyboards)
+        return super().on_touch_down(touch)
+
+    @staticmethod
+    def _dedup_vkeyboards(dt):
+        from kivy.uix.vkeyboard import VKeyboard
+        vks = [c for c in Window.children if isinstance(c, VKeyboard)]
+        while len(vks) > 1:
+            Window.remove_widget(vks.pop(0))
+
+    def _find_focused(self, widget):
+        """递归查找当前聚焦的TextInput"""
+        from kivy.uix.textinput import TextInput
+        if isinstance(widget, TextInput) and widget.focus:
+            return widget
+        for child in getattr(widget, 'children', []):
+            result = self._find_focused(child)
+            if result:
+                return result
+        return None
+
+    def show_flashcards(self):
+        """切换到卡片学习页"""
+        self.ids.sm.current = 'deck_list'
+        self.active_tab = 'flashcards'
+
+    def show_dictionary(self):
+        """切换到英文词典页"""
+        self.ids.sm.current = 'dictionary'
+        self.active_tab = 'dictionary'
+
+    def show_vocab(self):
+        """切换到生词本页"""
+        self.ids.sm.current = 'vocab_list'
+        self.active_tab = 'vocab'
+
+    def show_picturebook(self):
+        """切换到绘本打卡页"""
+        self.ids.sm.current = 'picturebook'
+        self.active_tab = 'picturebook'
+
+
+class StudyApp(App):
+    """学习助手主应用 - 支持亮色/暗黑主题切换"""
+
+    # 主题色彩属性，KV中通过 app.color_xxx 引用
+    color_bg = ListProperty(LIGHT['bg'])
+    color_bg_card = ListProperty(LIGHT['bg_card'])
+    color_bg_nav = ListProperty(LIGHT['bg_nav'])
+    color_text = ListProperty(LIGHT['text'])
+    color_text_sec = ListProperty(LIGHT['text_sec'])
+    color_accent = ListProperty(LIGHT['accent'])
+    color_accent_light = ListProperty(LIGHT['accent_light'])
+    color_success = ListProperty(LIGHT['success'])
+    color_warning = ListProperty(LIGHT['warning'])
+    color_danger = ListProperty(LIGHT['danger'])
+    color_border = ListProperty(LIGHT['border'])
+    color_shadow = ListProperty(LIGHT['shadow'])
+
+    # 主题切换按钮文字
+    theme_label = StringProperty('深色模式')
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._is_dark = False
-        self._theme = LIGHT
-        self._active_tab = 'flashcards'
 
-        # 屏幕检测与缩放
-        self._detect_screen()
-        self._setup_fonts()
-
-        self._build_ui()
-        self._init_frames()
-        self.show_tab('flashcards')
-
-    @property
-    def theme(self):
-        return self._theme
-
-    def _detect_screen(self):
-        """检测屏幕尺寸, 计算缩放因子"""
-        self.update_idletasks()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-
-        # 设置窗口: 小屏全屏, 大屏居中
-        if sw <= 1080:
-            self.geometry(f'{sw}x{sh}+0+0')
-            self.attributes('-fullscreen', True)
-        else:
-            w, h = min(sw, 1920), min(sh, 1080)
-            x = (sw - w) // 2
-            y = (sh - h) // 2
-            self.geometry(f'{w}x{h}+{x}+{y}')
-
-        self.update_idletasks()
-        self._win_w = self.winfo_width()
-        self._win_h = self.winfo_height()
-
-        # 缩放因子: 相对于 1280x720
-        self._sx = self._win_w / _REF_W
-        self._sy = self._win_h / _REF_H
-        self._s = min(self._sx, self._sy)  # 统一缩放
-
-        # 屏幕类型
-        if self._win_w < 600:
-            self._screen_type = 'phone'
-        elif self._win_w < 1024:
-            self._screen_type = 'tablet'
-        else:
-            self._screen_type = 'desktop'
-
-    def s(self, size):
-        """缩放尺寸 (字体/间距/按钮等)"""
-        return max(8, int(size * self._s))
-
-    def sx(self, size):
-        """缩放水平尺寸"""
-        return max(4, int(size * self._sx))
-
-    def sy(self, size):
-        """缩放垂直尺寸"""
-        return max(4, int(size * self._sy))
-
-    @property
-    def screen_type(self):
-        return self._screen_type
-
-    @property
-    def win_size(self):
-        return self._win_w, self._win_h
-
-    def _setup_fonts(self):
-        base = self.s(14)
-        self._default_font = tkfont.Font(family='Microsoft YaHei', size=base)
-        self.option_add('*Font', self._default_font)
-
-    def _build_ui(self):
-        t = self._theme
-        nav_h = self.sy(50)
-
-        # --- 顶部导航栏 ---
-        self.top_bar = tk.Frame(self, bg=t['bg_nav'], height=nav_h)
-        self.top_bar.pack(fill='x')
-        self.top_bar.pack_propagate(False)
-
-        self.title_label = tk.Label(
-            self.top_bar, text='学习助手',
-            font=('Microsoft YaHei', self.s(20), 'bold'),
-            bg=t['bg_nav'], fg=t['text'])
-        self.title_label.pack(side='left', padx=self.sx(20))
-
-        self.theme_btn = tk.Button(
-            self.top_bar, text='深色模式',
-            font=('Microsoft YaHei', self.s(12)),
-            bg=t['accent_light'], fg=t['accent'], relief='flat', bd=0,
-            command=self.toggle_theme)
-        self.theme_btn.pack(side='right', padx=self.sx(20), pady=self.sy(8))
-
-        tk.Frame(self, bg=t['border'], height=1).pack(fill='x')
-
-        # --- 主内容区域 ---
-        self.content = tk.Frame(self, bg=t['bg'])
-        self.content.pack(fill='both', expand=True)
-
-        tk.Frame(self, bg=t['border'], height=1).pack(fill='x')
-
-        # --- 底部导航栏 ---
-        self.bottom_nav = tk.Frame(self, bg=t['bg_nav'], height=nav_h)
-        self.bottom_nav.pack(fill='x')
-        self.bottom_nav.pack_propagate(False)
-
-        tabs = [('flashcards', '卡片学习'), ('dictionary', '英文词典'),
-                ('vocab', '生词本'), ('picturebook', '绘本打卡')]
-        nav_font = ('Microsoft YaHei', self.s(14))
-        self._nav_buttons = {}
-        for key, label in tabs:
-            btn = tk.Button(self.bottom_nav, text=label, font=nav_font,
-                            bg=t['bg_nav'], fg=t['text_sec'], relief='flat', bd=0,
-                            command=lambda k=key: self.show_tab(k))
-            btn.pack(side='left', expand=True, fill='both')
-            self._nav_buttons[key] = btn
-
-    def _init_frames(self):
-        self._frames = {}
-
-        from studyapp.features.flashcards.screens import DeckListFrame, CardEditorFrame, StudyFrame
-        from studyapp.features.dictionary.screens import DictionaryFrame, VocabListFrame
-        from studyapp.features.picturebook.screens import PictureBookFrame
-
-        self._frames['deck_list'] = DeckListFrame(self.content, self)
-        self._frames['card_editor'] = CardEditorFrame(self.content, self)
-        self._frames['study'] = StudyFrame(self.content, self)
-        self._frames['dictionary'] = DictionaryFrame(self.content, self)
-        self._frames['vocab_list'] = VocabListFrame(self.content, self)
-        self._frames['picturebook'] = PictureBookFrame(self.content, self)
-
-        for frame in self._frames.values():
-            frame.grid(row=0, column=0, sticky='nsew')
-        self.content.grid_rowconfigure(0, weight=1)
-        self.content.grid_columnconfigure(0, weight=1)
-
-    def show_tab(self, tab_key):
-        self._active_tab = tab_key
-        t = self._theme
-        nav_font = ('Microsoft YaHei', self.s(14))
-
-        for key, btn in self._nav_buttons.items():
-            if key == tab_key:
-                btn.configure(fg=t['accent'], font=(*nav_font[:2], nav_font[2], 'bold') if len(nav_font) > 2 else nav_font)
-                btn.configure(font=('Microsoft YaHei', self.s(14), 'bold'))
-            else:
-                btn.configure(fg=t['text_sec'], font=('Microsoft YaHei', self.s(14)))
-
-        frame_map = {
-            'flashcards': 'deck_list',
-            'dictionary': 'dictionary',
-            'vocab': 'vocab_list',
-            'picturebook': 'picturebook',
-        }
-        frame_key = frame_map.get(tab_key)
-        if frame_key:
-            self._show_frame(frame_key)
-
-    def _show_frame(self, frame_key):
-        frame = self._frames.get(frame_key)
-        if frame:
-            frame.tkraise()
-            if hasattr(frame, 'on_enter'):
-                frame.on_enter()
-
-    def show_sub_screen(self, frame_key, **kwargs):
-        frame = self._frames.get(frame_key)
-        if frame and hasattr(frame, 'load'):
-            frame.load(**kwargs)
-        self._show_frame(frame_key)
+    def build(self):
+        init_db()
+        root = RootWidget()
+        register_flashcards(root.ids.sm)
+        register_dictionary(root.ids.sm)
+        register_picturebook(root.ids.sm)
+        root.ids.sm.current = 'deck_list'
+        return root
 
     def toggle_theme(self):
+        """切换亮色/暗黑主题，更新所有颜色属性"""
         self._is_dark = not self._is_dark
-        self._theme = DARK if self._is_dark else LIGHT
-        self.theme_btn.configure(text='浅色模式' if self._is_dark else '深色模式')
-        self._apply_theme()
-
-    def _apply_theme(self):
-        t = self._theme
-        self.configure(bg=t['bg'])
-        self.title_label.configure(bg=t['bg_nav'], fg=t['text'])
-        self.theme_btn.configure(bg=t['accent_light'], fg=t['accent'])
-        self.content.configure(bg=t['bg'])
-        self.top_bar.configure(bg=t['bg_nav'])
-        self.bottom_nav.configure(bg=t['bg_nav'])
-        for key, btn in self._nav_buttons.items():
-            bg = t['bg_nav']
-            fg = t['accent'] if key == self._active_tab else t['text_sec']
-            btn.configure(bg=bg, fg=fg)
-        for frame in self._frames.values():
-            if hasattr(frame, 'apply_theme'):
-                frame.apply_theme()
+        theme = DARK if self._is_dark else LIGHT
+        self.color_bg = theme['bg']
+        self.color_bg_card = theme['bg_card']
+        self.color_bg_nav = theme['bg_nav']
+        self.color_text = theme['text']
+        self.color_text_sec = theme['text_sec']
+        self.color_accent = theme['accent']
+        self.color_accent_light = theme['accent_light']
+        self.color_success = theme['success']
+        self.color_warning = theme['warning']
+        self.color_danger = theme['danger']
+        self.color_border = theme['border']
+        self.color_shadow = theme['shadow']
+        self.theme_label = '浅色模式' if self._is_dark else '深色模式'
 
 
 if __name__ == '__main__':
-    app = StudyApp()
-    app.mainloop()
+    StudyApp().run()
