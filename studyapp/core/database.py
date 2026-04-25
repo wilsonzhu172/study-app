@@ -97,6 +97,13 @@ def init_db():
         );
     """)
 
+    # Add last_checkin column to decks if not exists (must be before usage below)
+    try:
+        conn.execute("ALTER TABLE decks ADD COLUMN last_checkin TEXT DEFAULT NULL")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     # Create default "vocabulary book" deck if not exists
     cur = conn.execute("SELECT id FROM decks WHERE is_system = 1")
     if cur.fetchone() is None:
@@ -132,13 +139,6 @@ def init_db():
     # Add daily_new_limit column to decks if not exists
     try:
         conn.execute("ALTER TABLE decks ADD COLUMN daily_new_limit INTEGER DEFAULT 20")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-
-    # Add last_checkin column to decks if not exists
-    try:
-        conn.execute("ALTER TABLE decks ADD COLUMN last_checkin TEXT DEFAULT NULL")
         conn.commit()
     except sqlite3.OperationalError:
         pass
