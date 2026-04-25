@@ -93,6 +93,17 @@
             color: app.color_accent if root.active_tab == 'flashcards' else app.color_text_sec
             on_press: root.show_flashcards()
 
+        # 单词测验标签
+        Button:
+            id: nav_quiz
+            text: '单词测验'
+            font_size: 24
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_bg_nav
+            color: app.color_accent if root.active_tab == 'quiz' else app.color_text_sec
+            on_press: root.show_quiz()
+
         # 英文词典标签
         Button:
             id: nav_dictionary

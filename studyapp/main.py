@@ -25,6 +25,7 @@ from studyapp.core.theme import LIGHT, DARK
 from studyapp.features.flashcards.screens import register_screens as register_flashcards
 from studyapp.features.dictionary.screens import register_screens as register_dictionary
 from studyapp.features.picturebook.screens import register_screens as register_picturebook
+from studyapp.features.quiz.screens import register_screens as register_quiz
 
 # 窗口大小 (适配21.5寸学习机横屏, Android上使用全屏)
 if not os.environ.get('ANDROID_ROOT'):
@@ -107,6 +108,11 @@ class RootWidget(BoxLayout):
         self.ids.sm.current = 'picturebook'
         self.active_tab = 'picturebook'
 
+    def show_quiz(self):
+        """切换单词测验页"""
+        self.ids.sm.current = 'quiz'
+        self.active_tab = 'quiz'
+
 
 class StudyApp(App):
     """学习助手主应用 - 支持亮色/暗黑主题切换"""
@@ -138,6 +144,7 @@ class StudyApp(App):
         register_flashcards(root.ids.sm)
         register_dictionary(root.ids.sm)
         register_picturebook(root.ids.sm)
+        register_quiz(root.ids.sm)
         root.ids.sm.current = 'deck_list'
         return root
 
