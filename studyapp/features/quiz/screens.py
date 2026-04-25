@@ -197,14 +197,15 @@ class QuizScreen(Screen):
                 height=48,
                 halign='left',
                 valign='middle',
-                text_size=[None, None],
+                padding=[dp(16), dp(8)],
                 background_normal='',
                 background_down='',
                 background_color=bg,
                 color=fg,
             )
             btn._choice_idx = i
-            btn.bind(size=btn.setter('text_size'))
+            btn.bind(width=lambda b, v: setattr(b, 'text_size', (v - dp(32), None)))
+            btn.bind(texture_size=lambda b, v: setattr(b, 'height', max(48, v[1] + dp(16))))
             btn.bind(on_press=lambda b, idx=i: self._on_select(idx))
             grid.add_widget(btn)
 
