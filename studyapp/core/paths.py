@@ -24,7 +24,10 @@ def get_backup_dir() -> str:
     except (ImportError, Exception):
         ext = os.path.expanduser('~')
     d = os.path.join(ext, 'Download', 'studyapp')
-    os.makedirs(d, exist_ok=True)
+    try:
+        os.makedirs(d, exist_ok=True)
+    except (PermissionError, OSError):
+        pass
     return d
 
 

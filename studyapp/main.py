@@ -139,6 +139,7 @@ class StudyApp(App):
         self._is_dark = False
 
     def build(self):
+        self._request_storage_permission()
         init_db()
         root = RootWidget()
         register_flashcards(root.ids.sm)
@@ -147,6 +148,30 @@ class StudyApp(App):
         register_quiz(root.ids.sm)
         root.ids.sm.current = 'deck_list'
         return root
+
+    @staticmethod
+    def _request_storage_permission():
+        """请求存储权限 (Android 11+ 需要 MANAGE_EXTERNAL_STORAGE)"""
+        try:
+            from jnius import autoclass
+            Environment = autoclass('android.os.Environment')
+            if hasattr(Environment, 'isExternalStorageManager'):
+                if not Environment.isExternalStorageManager():
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    Intent = autoclass('android.content.Intent')
+                    Settings = autoclass('android.provider.Settings')
+                    Uri = autoclass('android.net.Uri')
+                    intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    intent.setData(Uri.parse('package:com.studyapp.studyapp'))
+                    PythonActivity.mActivity.startActivity(intent)
+                    return
+        except (ImportError, Exception):
+            pass
+        try:
+            from android.permissions import request_permissions, Permission
+            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE])
+        except (ImportError, Exception):
+            pass
 
     def toggle_theme(self):
         """切换亮色/暗黑主题，更新所有颜色属性"""

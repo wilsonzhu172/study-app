@@ -40,7 +40,7 @@ android.save_data = False
 android.allow_backup = False
 
 # Android 权限
-android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
+android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE, MANAGE_EXTERNAL_STORAGE
 
 # 日志过滤
 android.logcat_filters = *:S python:D
