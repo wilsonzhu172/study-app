@@ -42,8 +42,8 @@ android.allow_backup = False
 # Android 权限
 android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 
-# Android 11+ 所有文件访问权限 (直接注入manifest, 绕过buildozer验证)
-android.extra_manifest_xml = <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+# Android 11+ 所有文件访问权限 (通过文件注入manifest)
+android.extra_manifest_xml = extra_manifest.xml
 
 # 日志过滤
 android.logcat_filters = *:S python:D
