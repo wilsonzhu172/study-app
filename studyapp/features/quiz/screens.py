@@ -1,6 +1,7 @@
 import os
 import re
 import random
+import traceback
 from datetime import datetime, timedelta
 
 from kivy.lang import Builder
@@ -8,7 +9,6 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
-from kivy.properties import BooleanProperty
 from kivy.metrics import dp
 
 from studyapp.core.database import get_connection
@@ -29,7 +29,11 @@ class QuizScreen(Screen):
     _submitted = False
 
     def on_enter(self):
-        self._load_questions()
+        try:
+            self._load_questions()
+        except Exception:
+            traceback.print_exc()
+            self._show_safe_empty('测验页加载出错，请返回重试')
 
     @staticmethod
     def _is_english(text):
@@ -63,22 +67,23 @@ class QuizScreen(Screen):
             "JOIN cards c ON sr.card_id = c.id "
             "WHERE DATE(sr.studied_at) = DATE('now','localtime')",
         ).fetchall():
-            front = r['front'].strip()
-            if not self._is_english(front):
+            front = r['front']
+            if not front or not self._is_english(front.strip()):
                 continue
-            w = front.lower()
+            w = front.strip().lower()
             if w in seen:
                 continue
             seen.add(w)
-            back_first = r['back'].split('\n')[0].strip()
+            back = r['back'] or ''
+            back_first = back.split('\n')[0].strip()
             word_list.append({
-                'word': front,
+                'word': front.strip(),
                 'translation': back_first,
                 'card_id': r['id'],
             })
 
         if not word_list:
-            self._show_empty('今日暂无单词可测验\n请先学习单词或查词')
+            self._show_safe_empty('今日暂无单词可测验\n请先学习单词或查词')
             return
 
         # 收集所有释义用于干扰选项
@@ -87,7 +92,7 @@ class QuizScreen(Screen):
             "SELECT DISTINCT translation FROM vocabulary "
             "WHERE translation IS NOT NULL AND translation != ''"
         ).fetchall():
-            t = r['translation'].split('\n')[0].strip()
+            t = (r['translation'] or '').split('\n')[0].strip()
             if t:
                 all_translations.add(t)
         for item in word_list:
@@ -112,7 +117,7 @@ class QuizScreen(Screen):
             })
 
         if not self._questions:
-            self._show_empty('今日暂无单词可测验\n请先学习单词或查词')
+            self._show_safe_empty('今日暂无单词可测验\n请先学习单词或查词')
             return
 
         self._total = len(self._questions)
@@ -123,7 +128,6 @@ class QuizScreen(Screen):
         wrong = [t for t in set(all_translations) if t != correct]
         random.shuffle(wrong)
         choices = [correct] + wrong[:4]
-        # 不够4个干扰项时，用已有选项补充（避免重复正确答案）
         while len(choices) < 5 and wrong:
             extra = random.choice(wrong)
             if extra not in choices:
@@ -134,15 +138,24 @@ class QuizScreen(Screen):
         return choices
 
     def _show_quiz(self):
-        self.ids.quiz_content.size_hint_y = 1
-        self.ids.empty_message.height = 0
-        self.ids.empty_message.text = ''
+        quiz = self.ids.get('quiz_content')
+        empty = self.ids.get('empty_message')
+        if quiz:
+            quiz.size_hint_y = 1
+        if empty:
+            empty.height = 0
+            empty.text = ''
 
-    def _show_empty(self, message):
-        self.ids.quiz_content.size_hint_y = None
-        self.ids.quiz_content.height = 0
-        self.ids.empty_message.height = 400
-        self.ids.empty_message.text = message
+    def _show_safe_empty(self, message):
+        """安全地显示空状态，不依赖 quiz_content"""
+        quiz = self.ids.get('quiz_content')
+        empty = self.ids.get('empty_message')
+        if quiz:
+            quiz.size_hint_y = None
+            quiz.height = 0
+        if empty:
+            empty.height = 400
+            empty.text = message
 
     def _next(self):
         if not self._questions:
@@ -150,7 +163,12 @@ class QuizScreen(Screen):
             self._wrong = []
 
         if not self._questions:
-            self._show_complete()
+            self._show_safe_empty(
+                f'测验完成!\n\n'
+                f'正确: {self._correct}\n'
+                f'答错: {len(self._wrong)}\n'
+                f'正确率: {self._correct * 100 // max(self._total, 1)}%'
+            )
             return
 
         self._current = self._questions.pop(0)
@@ -166,12 +184,16 @@ class QuizScreen(Screen):
         self.ids.confirm_btn.opacity = 1
         self.ids.next_btn.disabled = True
         self.ids.next_btn.opacity = 0
-        self.ids.confirm_btn.parent.width = 200
+        btn_parent = self.ids.confirm_btn.parent
+        if btn_parent:
+            btn_parent.width = 200
 
     def _render_choices(self):
         grid = self.ids.choices_grid
         grid.clear_widgets()
         app = self._get_app()
+        bg = app.color_bg_card if hasattr(app, 'color_bg_card') else (1, 1, 1, 1)
+        fg = app.color_text if hasattr(app, 'color_text') else (0, 0, 0, 1)
         for i, choice in enumerate(self._current['choices']):
             btn = Button(
                 text=f'  ○  {choice}',
@@ -183,33 +205,34 @@ class QuizScreen(Screen):
                 text_size=[None, None],
                 background_normal='',
                 background_down='',
-                background_color=app.color_bg_card if hasattr(app, 'color_bg_card') else (1, 1, 1, 1),
-                color=app.color_text if hasattr(app, 'color_text') else (0, 0, 0, 1),
+                background_color=bg,
+                color=fg,
             )
             btn._choice_idx = i
             btn.bind(size=btn.setter('text_size'))
-            btn.bind(on_press=lambda b: self._on_select(b._choice_idx))
+            btn.bind(on_press=lambda b, idx=i: self._on_select(idx))
             grid.add_widget(btn)
 
     def _on_select(self, index):
         self._selected_index = index
         self.ids.confirm_btn.disabled = False
-        # 更新选中状态的圆圈样式
-        for btn in self.ids.choices_grid.children:
+        grid = self.ids.choices_grid
+        choices = self._current['choices']
+        for btn in grid.children:
             i = btn._choice_idx
             if i == index:
-                btn.text = f'  ●  {self._current["choices"][i]}'
+                btn.text = f'  ●  {choices[i]}'
             else:
-                btn.text = f'  ○  {self._current["choices"][i]}'
+                btn.text = f'  ○  {choices[i]}'
 
     def confirm_answer(self):
         if self._submitted or self._selected_index is None:
             return
         self._submitted = True
 
-        correct_idx = self._current['choices'].index(self._current['translation'])
-        chosen = self._current['choices'][self._selected_index]
-        is_correct = chosen == self._current['translation']
+        choices = self._current['choices']
+        correct_idx = choices.index(self._current['translation'])
+        is_correct = choices[self._selected_index] == self._current['translation']
 
         feedback = self.ids.feedback_label
         grid = self.ids.choices_grid
@@ -225,43 +248,31 @@ class QuizScreen(Screen):
             if self._current['card_id']:
                 self._decrease_mastery(self._current['card_id'])
 
-        # 高亮正确/错误选项
         for btn in grid.children:
             i = btn._choice_idx
             if i == correct_idx:
                 btn.background_color = (0.2, 0.7, 0.2, 1)
                 btn.color = (1, 1, 1, 1)
-                btn.text = f'  ●  {self._current["choices"][i]}'
+                btn.text = f'  ●  {choices[i]}'
             elif i == self._selected_index and not is_correct:
                 btn.background_color = (0.8, 0.2, 0.2, 1)
                 btn.color = (1, 1, 1, 1)
-                btn.text = f'  ●  {self._current["choices"][i]}'
+                btn.text = f'  ●  {choices[i]}'
             btn.disabled = True
 
         self._update_progress()
-        # 隐藏确定，显示下一题
         self.ids.confirm_btn.opacity = 0
         self.ids.confirm_btn.disabled = True
         self.ids.next_btn.opacity = 1
         self.ids.next_btn.disabled = False
-        self.ids.confirm_btn.parent.width = 200
 
     def next_question(self):
         self._next()
 
     def _update_progress(self):
-        answered = self._correct + len(self._wrong)
         remaining = len(self._questions) + len(self._wrong)
         self.ids.progress_label.text = f'剩余 {remaining} 题'
         self.ids.stats_label.text = f'正确 {self._correct}  |  答错 {len(self._wrong)}  |  共 {self._total} 题'
-
-    def _show_complete(self):
-        self._show_empty(
-            f'测验完成!\n\n'
-            f'正确: {self._correct}\n'
-            f'答错: {len(self._wrong)}\n'
-            f'正确率: {self._correct * 100 // max(self._total, 1)}%'
-        )
 
     def _decrease_mastery(self, card_id):
         progress = get_card_progress(card_id)
