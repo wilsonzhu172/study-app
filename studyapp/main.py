@@ -139,7 +139,6 @@ class StudyApp(App):
         self._is_dark = False
 
     def build(self):
-        self._request_storage_permission()
         init_db()
         root = RootWidget()
         register_flashcards(root.ids.sm)
@@ -148,6 +147,51 @@ class StudyApp(App):
         register_quiz(root.ids.sm)
         root.ids.sm.current = 'deck_list'
         return root
+
+    def restore_backup(self):
+        """先弹确认框，确认后再恢复"""
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+
+        content = BoxLayout(orientation='vertical', padding=20, spacing=20)
+        content.add_widget(Label(
+            text='将从备份恢复数据\n当前数据会被覆盖\n\n恢复后需退出重新打开应用',
+            font_size=28, halign='center',
+        ))
+        btn_row = BoxLayout(spacing=20, size_hint_y=None, height=60)
+        btn_cancel = Button(text='取消', font_size=28,
+                            background_normal='', background_down='',
+                            background_color=self.color_text_sec)
+        btn_confirm = Button(text='确认恢复', font_size=28,
+                             background_normal='', background_down='',
+                             background_color=self.color_warning,
+                             color=(1, 1, 1, 1))
+        btn_row.add_widget(btn_cancel)
+        btn_row.add_widget(btn_confirm)
+        content.add_widget(btn_row)
+
+        popup = Popup(title='恢复备份', content=content,
+                      size_hint=(0.6, 0.4), auto_dismiss=False)
+        btn_cancel.bind(on_press=popup.dismiss)
+        btn_confirm.bind(on_press=lambda _: self._do_restore(popup))
+        popup.open()
+
+    def _do_restore(self, popup):
+        """执行恢复操作"""
+        from kivy.uix.popup import Popup as Popup2
+        from kivy.uix.label import Label
+        from studyapp.core.database import do_restore_backup
+        popup.dismiss()
+        self._request_storage_permission()
+        ok, msg = do_restore_backup()
+        result = Popup2(
+            title='恢复备份',
+            content=Label(text=msg, font_size=28, halign='center'),
+            size_hint=(0.6, 0.35),
+        )
+        result.open()
 
     @staticmethod
     def _request_storage_permission():

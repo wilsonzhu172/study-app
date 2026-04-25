@@ -147,9 +147,6 @@ def init_db():
     # Load preset data from CSV files (only if preset_decks is empty)
     _load_presets(conn)
 
-    # 启动时: 从备份恢复 (重装后首次启动，数据库是空的)
-    _restore_from_backup(conn)
-
 
 def backup_db():
     """备份数据库到公共目录"""
@@ -171,31 +168,29 @@ def backup_db():
             _connection.execute("PRAGMA foreign_keys = ON")
 
 
-def _restore_from_backup(conn):
-    """如果当前数据库是空的，从备份恢复"""
+def do_restore_backup():
+    """手动恢复备份，返回 (成功?, 消息)"""
     global _connection
     try:
         backup_path = get_backup_db_path()
         if not os.path.exists(backup_path):
-            return
-        # 检查是否有用户数据 (decks 表有非系统记录，或有 study_records)
-        row = conn.execute("SELECT COUNT(*) FROM study_records").fetchone()
-        if row[0] > 0:
-            return  # 已有数据，不需要恢复
-        # 数据库是空的，从备份恢复
+            return False, '没有找到备份数据'
         db_path = get_db_path()
-        conn.close()
-        _connection = None
+        if _connection:
+            _connection.commit()
+            _connection.close()
+            _connection = None
         shutil.copy2(backup_path, db_path)
         _connection = sqlite3.connect(db_path)
         _connection.row_factory = sqlite3.Row
         _connection.execute("PRAGMA foreign_keys = ON")
+        return True, '恢复成功!\n请点击"退出"重新打开应用'
     except (PermissionError, OSError):
-        # 没有存储权限，跳过恢复，重建连接
         if _connection is None:
             _connection = sqlite3.connect(get_db_path())
             _connection.row_factory = sqlite3.Row
             _connection.execute("PRAGMA foreign_keys = ON")
+        return False, '恢复失败\n请在弹出的设置页中授予权限后再次点击恢复'
 
 
 def _load_presets(conn):

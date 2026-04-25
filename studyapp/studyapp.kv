@@ -31,17 +31,32 @@
             font_size: 36
             bold: True
             color: app.color_text
-            size_hint_x: 0.72
+            size_hint_x: 0.54
             halign: 'left'
             valign: 'middle'
             text_size: self.size
+
+        # 恢复备份按钮
+        Button:
+            id: restore_btn
+            text: '恢复'
+            font_size: 22
+            size_hint_x: 0.16
+            size_hint_y: None
+            height: 44
+            pos_hint: {'center_y': 0.5}
+            background_normal: ''
+            background_down: ''
+            background_color: app.color_warning
+            color: (1, 1, 1, 1)
+            on_press: app.restore_backup()
 
         # 暗黑模式切换按钮
         Button:
             id: theme_toggle
             text: app.theme_label
             font_size: 22
-            size_hint_x: 0.14
+            size_hint_x: 0.15
             size_hint_y: None
             height: 44
             pos_hint: {'center_y': 0.5}
@@ -56,7 +71,7 @@
             id: exit_btn
             text: '退出'
             font_size: 22
-            size_hint_x: 0.14
+            size_hint_x: 0.15
             size_hint_y: None
             height: 44
             pos_hint: {'center_y': 0.5}
@@ -65,14 +80,6 @@
             background_color: app.color_danger
             color: (1, 1, 1, 1)
             on_press: app.quit_app()
-            size_hint_y: None
-            height: 44
-            pos_hint: {'center_y': 0.5}
-            background_normal: ''
-            background_down: ''
-            background_color: app.color_accent_light
-            color: app.color_accent
-            on_press: app.toggle_theme()
 
     # --- 主内容区域 (ScreenManager) ---
     ScreenManager:
