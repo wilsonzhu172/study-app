@@ -84,8 +84,11 @@ class DeckListScreen(Screen):
     @staticmethod
     def _hex_to_rgba(hex_color):
         """将十六进制颜色转为RGBA元组"""
-        h = hex_color.lstrip('#')
-        return tuple(int(h[i:i+2], 16) / 255 for i in (0, 2, 4)) + (1,)
+        try:
+            h = hex_color.lstrip('#')
+            return tuple(int(h[i:i+2], 16) / 255 for i in (0, 2, 4)) + (1,)
+        except (ValueError, IndexError):
+            return (0.3, 0.6, 1.0, 1)
 
     def show_add_deck(self):
         """弹出新建牌组对话框"""
