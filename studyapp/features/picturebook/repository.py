@@ -12,21 +12,29 @@ def get_today_record() -> BookRecord | None:
     return BookRecord(**dict(r)) if r else None
 
 
-def upsert_record(book_count: int, accuracy: int):
-    today = datetime.now().strftime('%Y-%m-%d')
+def get_record_by_date(date: str) -> BookRecord | None:
+    r = get_connection().execute(
+        "SELECT * FROM picture_book_records WHERE date = ?", (date,)
+    ).fetchone()
+    return BookRecord(**dict(r)) if r else None
+
+
+def upsert_record(book_count: int, accuracy: int, date: str = None):
+    if date is None:
+        date = datetime.now().strftime('%Y-%m-%d')
     conn = get_connection()
     existing = conn.execute(
-        "SELECT id FROM picture_book_records WHERE date = ?", (today,)
+        "SELECT id FROM picture_book_records WHERE date = ?", (date,)
     ).fetchone()
     if existing:
         conn.execute(
             "UPDATE picture_book_records SET book_count=?, accuracy=? WHERE date=?",
-            (book_count, accuracy, today),
+            (book_count, accuracy, date),
         )
     else:
         conn.execute(
             "INSERT INTO picture_book_records (date, book_count, accuracy) VALUES (?, ?, ?)",
-            (today, book_count, accuracy),
+            (date, book_count, accuracy),
         )
     conn.commit()
 

@@ -38,6 +38,17 @@
                     size: self.size
                     radius: [16]
 
+            Button:
+                id: date_input
+                text: ''
+                font_size: 24
+                size_hint_x: None
+                width: 180
+                background_normal: ''
+                background_down: ''
+                background_color: app.color_bg_card
+                color: app.color_text
+                on_press: root.show_date_picker()
             Label:
                 id: today_status
                 text: '今日尚未打卡'

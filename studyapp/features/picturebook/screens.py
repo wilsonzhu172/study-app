@@ -13,7 +13,7 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, Rectangle, Line
 from kivy.properties import ListProperty
 
-from .repository import get_today_record, upsert_record, get_recent_records, get_stats
+from .repository import get_today_record, get_record_by_date, upsert_record, get_recent_records, get_stats
 from ..flashcards.screens import _bind_exclusive_focus
 
 kv_path = os.path.join(os.path.dirname(__file__), 'picturebook.kv')
@@ -195,19 +195,113 @@ class PictureBookScreen(Screen):
         self.refresh()
 
     def refresh(self):
-        app = App.get_running_app()
         today = datetime.now().strftime('%Y-%m-%d')
-        record = get_today_record()
-
-        if record:
-            self.ids.today_status.text = f'{today}  已读 {record.book_count} 本  正确率 {int(record.accuracy)}%'
-            self.ids.btn_checkin.text = '修改'
-        else:
-            self.ids.today_status.text = f'{today}  今日尚未打卡'
-            self.ids.btn_checkin.text = '打卡'
-
+        if not self.ids.date_input.text:
+            self.ids.date_input.text = today
+        self._refresh_status()
         self._update_chart()
         self._update_stats()
+
+    def _get_selected_date(self):
+        return self.ids.date_input.text.strip()
+
+    def _refresh_status(self):
+        date = self._get_selected_date()
+        record = get_record_by_date(date)
+        if record:
+            self.ids.today_status.text = f'已读 {record.book_count} 本  正确率 {int(record.accuracy)}%'
+            self.ids.btn_checkin.text = '修改'
+        else:
+            self.ids.today_status.text = '尚未打卡'
+            self.ids.btn_checkin.text = '打卡'
+
+    def show_date_picker(self):
+        from calendar import monthcalendar
+        app = App.get_running_app()
+        today = datetime.now().strftime('%Y-%m-%d')
+        current = self._get_selected_date()
+        try:
+            year, month = int(current[:4]), int(current[5:7])
+        except (ValueError, IndexError):
+            year, month = datetime.now().year, datetime.now().month
+
+        content = BoxLayout(orientation='vertical', spacing=10, padding=15)
+
+        # 月份导航: < 2026年4月 >
+        header = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        btn_prev = Button(text='<', font_size=28, background_normal='', background_down='',
+                          background_color=app.color_text_sec, color=(1, 1, 1, 1))
+        lbl_month = Label(text=f'{year}年{month}月', font_size=28, color=app.color_text, bold=True)
+        btn_next = Button(text='>', font_size=28, background_normal='', background_down='',
+                          background_color=app.color_text_sec, color=(1, 1, 1, 1))
+        header.add_widget(btn_prev)
+        header.add_widget(lbl_month)
+        header.add_widget(btn_next)
+        content.add_widget(header)
+
+        # 星期标题行
+        weekday_row = BoxLayout(size_hint_y=None, height=40)
+        for name in ['一', '二', '三', '四', '五', '六', '日']:
+            weekday_row.add_widget(Label(text=name, font_size=22, color=app.color_text_sec))
+        content.add_widget(weekday_row)
+
+        # 日期网格
+        cal = monthcalendar(year, month)
+        cal_grid = BoxLayout(orientation='vertical', spacing=5)
+        for week in cal:
+            row = BoxLayout(spacing=5)
+            for day in week:
+                if day == 0:
+                    row.add_widget(Label(text=''))
+                else:
+                    date_str = f'{year}-{month:02d}-{day:02d}'
+                    btn = Button(text=str(day), font_size=24, background_normal='', background_down='')
+                    if date_str > today:
+                        btn.background_color = (0.9, 0.9, 0.9, 1)
+                        btn.color = (0.7, 0.7, 0.7, 1)
+                        btn.disabled = True
+                    elif date_str == current:
+                        btn.background_color = app.color_accent
+                        btn.color = (1, 1, 1, 1)
+                    else:
+                        btn.background_color = app.color_bg_card
+                        btn.color = app.color_text
+                    btn.bind(on_release=lambda b, d=date_str: self._on_date_selected(d, popup))
+                    row.add_widget(btn)
+            cal_grid.add_widget(row)
+        content.add_widget(cal_grid)
+
+        # 取消按钮
+        btn_cancel = Button(text='取消', font_size=26, size_hint_y=None, height=50,
+                            background_normal='', background_down='',
+                            background_color=app.color_text_sec, color=(1, 1, 1, 1))
+        content.add_widget(btn_cancel)
+
+        popup = Popup(title='选择日期', content=content, size_hint=(0.5, 0.55),
+                      background='', background_color=app.color_bg_card,
+                      title_color=app.color_text, separator_color=app.color_border)
+
+        btn_cancel.bind(on_press=popup.dismiss)
+
+        def _change_month(delta):
+            nonlocal year, month
+            month += delta
+            if month < 1:
+                month, year = 12, year - 1
+            elif month > 12:
+                month, year = 1, year + 1
+            popup.dismiss()
+            self.ids.date_input.text = f'{year}-{month:02d}-01'
+            self.show_date_picker()
+
+        btn_prev.bind(on_press=lambda b: _change_month(-1))
+        btn_next.bind(on_press=lambda b: _change_month(1))
+        popup.open()
+
+    def _on_date_selected(self, date, popup):
+        popup.dismiss()
+        self.ids.date_input.text = date
+        self._refresh_status()
 
     def _update_stats(self):
         periods = [('stats_1w', 7), ('stats_1m', 30), ('stats_3m', 90), ('stats_1y', 365)]
@@ -231,8 +325,16 @@ class PictureBookScreen(Screen):
         self._update_chart()
 
     def show_checkin_popup(self):
+        date = self._get_selected_date()
+        try:
+            d = datetime.strptime(date, '%Y-%m-%d')
+            if date > datetime.now().strftime('%Y-%m-%d'):
+                return
+        except ValueError:
+            return
+
         app = App.get_running_app()
-        record = get_today_record()
+        record = get_record_by_date(date)
 
         content = BoxLayout(orientation='vertical', spacing=15, padding=20)
         count_input = TextInput(
@@ -293,7 +395,7 @@ class PictureBookScreen(Screen):
             c = int(count_input.text.strip()) if count_input.text.strip() else 0
             a = _parse_accuracy(acc_input.text)
             if c > 0:
-                upsert_record(c, min(100, max(0, a)))
+                upsert_record(c, min(100, max(0, a)), date=date)
             _dismiss(popup)
             self.refresh()
 
